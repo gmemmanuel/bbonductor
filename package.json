@@ -1,0 +1,32 @@
+{
+  "name": "bb-plugin-bbonductor",
+  "version": "0.1.0-alpha.1",
+  "description": "Conductor-style workspaces and issue-to-merge workflows for bb.",
+  "type": "module",
+  "license": "MIT",
+  "private": false,
+  "scripts": {
+    "build": "bb plugin build",
+    "typecheck": "tsc --noEmit"
+  },
+  "engines": {
+    "bbPluginSdk": "^0.4.1"
+  },
+  "bb": {
+    "name": "bbonductor",
+    "description": "Workspace-first development workflows for bb.",
+    "branding": {
+      "icon": "GitBranch"
+    },
+    "server": "./server.ts",
+    "app": "./app.tsx"
+  },
+  "dependencies": {
+    "zod": "^4.0.0"
+  },
+  "devDependencies": {
+    "bb-app": "latest",
+    "@types/react": "^19.0.0",
+    "typescript": "^5.9.0"
+  }
+}
