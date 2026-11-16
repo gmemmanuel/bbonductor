@@ -36,7 +36,8 @@ does that).
 ## Rules
 
 - **You find; the planner plans.** Do not create tickets, write plans, or
-  queue work yourself. One agent holding the whole picture decides what is
+  queue work yourself. The founder approves each new ticket, and that request
+  comes from the planner, not from you. One agent holding the whole picture decides what is
   worth building, so findings do not turn into duplicate or low-value tickets.
 - **Report changes, not inventories.** A handoff that repeats yesterday's
   findings teaches the planner to stop reading.

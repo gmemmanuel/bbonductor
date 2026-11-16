@@ -34,8 +34,8 @@ Rules:
   in this thread. Address them and call `factory_stage_done` again. Pass
   `rereview: true` only when your fixes raise a new product or scope decision;
   one review pass is the design.
-- **Ask the founder only for founder decisions:** product behavior, scope, or
-  a contradiction with a recorded decision. Give the situation, the options
+- **Ask the founder only for founder decisions:** product behavior, scope,
+  approval of a mockup, or a contradiction with a recorded decision. Give the situation, the options
   with what the user would see in each, and your recommendation. Decide
   technical choices yourself.
 - If you stop without reporting, the factory reminds you once, then tells the

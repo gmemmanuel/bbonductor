@@ -15,7 +15,7 @@ In rough order.
 
 1. **Founder picks models per role, starts the orchestrator, and runs one small Justus ticket by hand.** Then resume the three paused automations.
 3. **Feedback that triggers a check when it arrives.** bb's public address cannot be called by the cloud function (see `LEARNINGS.md`), so plan a poller in Justus: a script automation every few minutes that asks preview for untriaged feedback newer than its marker, stays silent when there is none, and otherwise runs `bb factory prompt watch "…"` with the row ids. The `/prompt` hook is there if a safe public route appears.
-4. **Decide whether the orchestrator may create Linear issues without the founder confirming each one.** Justus rules say no today; the Watch-to-orchestrator flow assumes yes.
+4. **Revisit ticket approval around 30 November 2026.** The founder approves every new ticket for the first week or two; ask then whether the orchestrator may create them on its own.
 5. **Teach the Justus instructions about the factory.** `AGENTS.md` there says the founder launches reviews and ship; under the factory the factory does.
 6. **Move the sequence adapter into the Justus `sequence` skill.** `scripts/sequence-to-lanes.mjs` belongs beside the skill.
 7. **Install `tools/dashboard` dependencies in Justus worktrees** if a lane ever runs outside the main checkout.

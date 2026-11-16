@@ -11,6 +11,14 @@ What Gideon has decided about the factory, newest first. Check here before re-op
 
 ---
 
+## 16 November 2026 (fourth session)
+
+**The founder approves three things and nothing else: creating a ticket, mockups, and product decisions.** (Founder)
+"I want to approve ticket creation and mockups and any other product decisions but that's all." Ticket approval is for "the first week or two" while he sees what the daily checks produce; revisit after that. This keeps the Justus rule that no agent files a ticket without his confirmation.
+
+**A lane starts its next ticket as soon as the one ahead of it merges, without asking.** (Founder)
+An approved ticket needs no second approval to start.
+
 ## 16 November 2026 (third session)
 
 **The daily check covers watches, errors and traces, every day at 5:00.** (Founder)
