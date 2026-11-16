@@ -13,19 +13,28 @@ What was built, researched and learned, newest first. It replaces an issue track
 
 In rough order.
 
-1. **Merge the Justus setup branch.** `gideon/bb-worktree-setup` in `~/Development/justus-app-bb-setup` adds `.bb-env-setup.sh` and `.worktreeinclude`. Until it is on Justus main, a factory ticket's worktree has no dependencies. It must go through the Justus pipeline.
-2. **Merge this repo's branch to main**, then reinstall the plugin from the stable checkout or from git. Today bb loads it from the Conductor workspace folder; archiving that workspace would break the factory.
-3. **Founder picks models per role, starts the orchestrator, and runs one small Justus ticket.** Everything below should bend to what that shows.
-4. **Teach the Justus instructions about the factory.** `AGENTS.md` there says the founder launches reviews and ship; under the factory the factory does.
-5. **Move the sequence adapter into the Justus `sequence` skill.** `scripts/sequence-to-lanes.mjs` here converts the skill's output into `bb factory lanes` input; it belongs beside the skill, with the orchestrator charter telling it when to run.
-6. **Watch the first scheduled runs** (daily error check, weekly evidence review, weekly retro) and tune the prompts.
-7. **Rotate standing agents by context use.** Today "Fresh thread" is a button; the Watch agent will need it most.
-8. **Linear.** The factory does not read or write Linear. Justus agents already do through repo scripts; decide whether the page should show ticket titles and states from Linear.
+1. **Merge this repo's pull request (#1)**, then reinstall the plugin from git main. Today bb loads it from the Conductor workspace folder; archiving that workspace would break the factory.
+2. **Founder picks models per role, starts the orchestrator, and runs one small Justus ticket by hand.** Then resume the three paused automations.
+3. **Feedback that triggers a check when it arrives.** bb's public address cannot be called by the cloud function (see `LEARNINGS.md`), so plan a poller in Justus: a script automation every few minutes that asks preview for untriaged feedback newer than its marker, stays silent when there is none, and otherwise runs `bb factory prompt watch "…"` with the row ids. The `/prompt` hook is there if a safe public route appears.
+4. **Decide whether the orchestrator may create Linear issues without the founder confirming each one.** Justus rules say no today; the Watch-to-orchestrator flow assumes yes.
+5. **Teach the Justus instructions about the factory.** `AGENTS.md` there says the founder launches reviews and ship; under the factory the factory does.
+6. **Move the sequence adapter into the Justus `sequence` skill.** `scripts/sequence-to-lanes.mjs` belongs beside the skill.
+7. **Install `tools/dashboard` dependencies in Justus worktrees** if a lane ever runs outside the main checkout.
+8. **Rotate standing agents by context use.** Watch runs daily and will fill up first.
 9. **Editing pipelines and stage prompts in the page.**
 10. **Quota-aware roles.**
 11. **Install bb's Conductor layout when it is released.**
 
 ## Log
+
+### 16 November 2026 (third session): new schedule, Watch hands off to the planner, Justus checks at any cadence
+
+- **Founder corrected the schedule.** Daily checks are watches, errors and traces at 5:00 every day; the retro is Mondays 4:00; computer cleanup every three days by the harness improver; no weekly evidence review. All three automations exist and are paused at his request.
+- **Watch now finds and the orchestrator plans.** Watch sends one handoff of what is new; the orchestrator turns it into tickets and plans. A message to a standing agent that was never started now starts it.
+- **Added an inbound hook** (`POST …/http/prompt`, plugin token) so an outside event can wake a standing agent. Found that bb's public address answers with its own sign-in page before the plugin sees the request, so the cloud function cannot call it; recommended a poller instead.
+- **Opened pull request #1** for this repo.
+- **Justus tooling change** on branch `gideon/bb-worktree-setup`, plan `NO-LINEAR - Review checks run at any cadence and bb worktrees set themselves up`: the lanes' scheduled mode is renamed `run`, error triage keeps a marker of what it covered, and bb worktrees set themselves up. See the entry's outcome in the next line of this log once ship finishes.
+- **Checked:** 30 behaviour tests, 24 live checks; Justus lane contract tests, cursor tests and dashboard tool tests; the Sentry "since" query against real Sentry.
 
 ### 16 November 2026 (second session): installed for real, schedules, Justus setup
 
