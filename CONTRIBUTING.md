@@ -1,39 +1,20 @@
-# Contributing to bbonductor
+# Contributing
 
-Thanks for helping make BB feel more like a workspace-first software factory.
+Read [AGENTS.md](AGENTS.md) first; it is the working agreement for people and agents alike.
 
 ## Principles
 
-1. **Environment, not thread, is the workspace.** Do not reintroduce thread-scoped runtime/PR state.
-2. **Use supported BB plugin APIs.** Avoid DOM scraping and private server endpoints when a plugin SDK primitive exists.
-3. **Prefer provider-neutral behavior.** A workspace may contain Claude Code, Codex, Pi, Cursor, or other BB providers.
-4. **Keep external integrations optional.** Linear and GitHub enhancements should degrade cleanly when unconfigured.
-5. **Do not hide experimental dependencies.** If a feature relies on an `experimental_` BB API, document it.
-6. **Mobile matters.** Controls should remain usable through BB Connect on compact viewports.
+1. **The factory owns flow, the project owns craft.** Do not put planning, review, build or ship instructions in this plugin. Stage prompts name a project skill.
+2. **Reuse bb before building.** Check bb's built-in plugins and `docs/research/` before adding a surface.
+3. **Public SDK only.** No bb internals and no DOM scraping. Note any `experimental_` API in `docs/ARCHITECTURE.md`.
+4. **Provider-neutral.** Any role can be played by any provider bb supports.
+5. **Every engine rule has a test** driven through a tool, an event, RPC or the CLI.
 
-## Development
-
-```sh
-npm install
-bb plugin install .
-bb plugin dev
-```
-
-Run before opening a PR:
+## Before opening a pull request
 
 ```sh
-npm run typecheck
-npm run build
+npm run verify
+node scripts/live-check.mjs
 ```
 
-> Note: this alpha draft still needs its first live validation against an installed BB build. If BB's current scaffold generates SDK declaration files for external plugins, preserve those generated declarations in the repository so contributors can typecheck without depending on BB internals.
-
-## Good first contributions
-
-- preserve selected `environment.id` when creating another thread in a workspace;
-- richer terminal display/input;
-- PR cache + background refresh;
-- GitHub "Fix CI" agent action;
-- GitHub "Resolve conflicts" agent action;
-- Linear team/status discovery UI;
-- tests for workspace grouping and one-project/multi-project sidebar behavior.
+Add a `docs/WORKLOG.md` entry, and record anything non-obvious in `LEARNINGS.md`.

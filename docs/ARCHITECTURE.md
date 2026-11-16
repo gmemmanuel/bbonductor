@@ -1,78 +1,95 @@
 # Architecture
 
-## Principle: environment is the aggregate root
+## One idea
 
-bbonductor does not invent its own workspace primitive. BB already has the correct durable object: an **environment** representing the project root or a worktree.
-
-The plugin projects four kinds of state onto that environment:
-
-1. **Threads** — sourced from BB's sidebar thread cache.
-2. **Terminals/runtime** — sourced from `bb.sdk.terminals` with `{ kind: "environment", environmentId }` scope.
-3. **Pull request** — lightweight status from BB's sidebar PR hook; richer state through authenticated `gh` commands in the environment.
-4. **Issue metadata** — Linear identifier/title/link stored only as supplementary plugin metadata when needed.
-
-## Sidebar projection
+bb already has the right primitives: projects, worktree environments, threads on any provider, a queue, events, and a plugin SDK. The factory adds the one thing missing for a staged pipeline: something that decides **what starts next, where, on which model, and who is told**.
 
 ```text
-threads[]
-  -> group by projectId
-  -> group by environment.id
-  -> classify main/default environment
-  -> sort main first
-  -> sort pinned threads first within main
-  -> annotate representative thread with native PR lookup
+Founder ──► Orchestrator (standing thread, main checkout)
+                │  factory_enqueue
+                ▼
+        ┌──────────── lanes ────────────┐
+        │ Coach:  JUS-12 ─► JUS-15 ─► … │   one ticket at a time per lane
+        │ Plan:   JUS-20 ─► …           │   lanes run side by side, up to the cap
+        └───────────────────────────────┘
+                │ each ticket: its own worktree
+                ▼
+   plan ─► review plan ─► build ─► review code ─► ship
+   (each stage: a fresh thread, the role's model, same worktree)
+                │
+                ├─ factory_stage_done ──► next stage / findings to author
+                ├─ factory_ask_founder ─► Inbox ─► answer back to that thread
+                └─ factory_message ─────► another thread
 ```
 
-Project labels are shown only when the current dataset contains more than one project.
+## Pieces
 
-## Runtime lifecycle
+| Piece | File | Notes |
+|---|---|---|
+| Engine | `src/factory/engine.ts` | Pure rules. Serialises every mutation through one promise chain, so two events cannot both start a ticket. Talks to bb only through `Effects` |
+| Store | `src/factory/store.ts` | Plugin SQLite: `items`, `inbox`, `agents`, `thread_bindings`, `configs`. JSON documents with indexed columns, validated on read |
+| Effects | `server.ts` | `threads.spawn`, `threads.send`, `threads.retry`, `threads.get`, `threads.unpin`, `threads.interactions.list`, push notification RPC, realtime publish |
+| Events | `server.ts` | `thread.idle`, `thread.active`, `thread.failed`, `thread.archived`, `thread.deleted`, `interaction.pending` |
+| Agent tools | `server.ts` | `factory_stage_done`, `factory_ask_founder`, `factory_message`, `factory_enqueue`, `factory_status` |
+| CLI | `src/factory/cli.ts` | `bb factory …`, the same operations for agents and scripts |
+| Inbound hook | `server.ts` | `POST /api/v1/plugins/bbonductor/http/prompt` with the plugin token wakes a standing agent. Reachable from this machine only; bb's public address puts its own sign-in in front |
+| Page | `app.tsx` | Nav panel at `/plugins/bbonductor/factory`, with an inbox count on the rail |
+| Skills | `skills/` | `factory` (worker protocol), `factory-orchestrator`, `factory-harness-improver` |
 
-`Run` is intentionally workspace-level.
+## Configuration
+
+Per bb project, falling back to `src/factory/defaults.ts`:
+
+- **roles**: provider, model, thinking level, permission mode. Empty means the project default.
+- **stages**: label, role, one-line prompt naming a project skill, and whether it is a review.
+- **pipelines**: ordered stage lists. Defaults: `full`, `planned` (starts at plan review), `reviewed` (starts at build), `small-bug`.
+- **maxActiveItems**: tickets in flight across all lanes. Default 8.
+- **agents**: standing agents, each with a role, a charter skill, and a memory file path in the repo.
+
+## Ticket lifecycle
 
 ```text
-Run click
-  -> resolve project config
-  -> stop previous run terminal for environment (if any)
-  -> terminals.create(scope=environment, start=command)
-  -> store terminalId in ephemeral runtime map
-  -> open Runtime panel
+queued ─► running ─► done
+            │  ▲
+            │  └── answer / retry / thread resumed
+            ├─► needs-founder   (asked a question, or reported blocked)
+            ├─► returned        (review sent findings back to whoever queued it)
+            ├─► stalled         (stopped twice without reporting)
+            └─► failed          (turn failed, stage could not start, thread removed)
 ```
 
-Additional terminals use the same BB environment scope but are independent sessions.
+Every state except `queued`, `done` and `cancelled` holds its lane and counts toward the cap.
 
-## PR lifecycle
+## Rules worth knowing
 
-The sidebar should stay cheap, so it uses BB's native PR lookup hook.
+- **Independent review is structural.** Every stage is a new thread, so a reviewer never shares context with the author. The plugin also tells stage threads not to launch their own reviewer.
+- **One review pass.** A review that requests changes is recorded as passed. Findings go to the author's existing thread; when the author reports done, the ticket skips that review unless the author passes `rereview`.
+- **Findings with no author stage** (a ticket queued already planned) go to the thread that queued it, usually the orchestrator, which fixes the plan and runs `bb factory advance`.
+- **Silence is handled.** A stage thread that goes idle without reporting gets one reminder. The second time, the ticket is `stalled` and the founder is told.
+- **Tools are scoped.** Stage threads get report, ask and message. Standing agents also get enqueue and status. Other threads get nothing and use the CLI.
+- **The inbox spans projects.** It is the founder's single queue.
 
-The PR detail panel may run:
+## Standing agents
 
-```sh
-gh pr view --json number,title,url,state,isDraft,mergeable,mergeStateStatus,reviewDecision,statusCheckRollup
-```
+Three by default: the **Orchestrator** plans and queues, **Watch** runs recurring checks and hands what is new to the orchestrator, and the **Harness improver** runs retros and machine cleanup. Scheduled work reaches them through bb Automations running `bb factory prompt <agent> "…"`, which starts the agent if it has no thread. A message to an unstarted standing agent starts it too.
 
-Merge uses the configured merge method. Repair actions should not try to resolve conflicts deterministically in plugin code. Instead, they should spawn a coding-agent thread in the same environment with a precise task and relevant GitHub context.
+A standing agent is a pinned thread in the project's main checkout, started from the page. Its first prompt names its charter skill and its memory file. "Fresh thread" asks the current thread to write everything it knows to the memory file; when that thread goes idle, a new thread starts from the file and the old one is unpinned.
 
-## Linear lifecycle
+## What the factory deliberately leaves to others
 
-Linear is an optional external source of work.
+| Need | Who does it |
+|---|---|
+| Workspace sidebar, tabs, run script | bb's Conductor layout plugin (on bb's main branch, not yet in 0.49); until then bb's sidebar groups threads by worktree |
+| Cap on running threads per machine | bb's built-in Concurrency limit plugin |
+| Scheduled prompts (weekly retro, triage) | bb's built-in Automations plugin, running `bb factory prompt <agent> "…"` as a script |
+| Notifications to phone and desktop | bb's built-in Push notifications plugin (the factory calls it) |
+| Pull request status | bb's built-in GitHub PR status plugin |
+| Taking turns for dev deploys, CI, and merging | The project's own scripts (in Justus: `dev-qa-turn.mjs`, `ship-turn.mjs`) |
+| How to plan, review, build, ship | The project's own skills |
 
-- API key: BB secret setting.
-- Team/status filters: per-project configuration.
-- Default state filter: `Todo`.
-- Create workspace: fetch issue, compose initial prompt, spawn initial BB thread.
+## Experimental bb APIs in use
 
-The first draft uses BB's project-default environment policy. We should adopt a stable explicit worktree creation API when one is available to third-party plugins.
+- `app.slots.navPanel({ experimental_useBadge })` for the rail count.
+- `threads.interactions.list` result shape is read defensively.
 
-## Why not fork BB?
-
-Everything here maps naturally onto BB's plugin extension points:
-
-- replacement sidebar thread list;
-- custom nav panel;
-- custom settings section;
-- thread side-panel tabs;
-- RPC/realtime;
-- environment-scoped terminals;
-- agent/thread spawning.
-
-Staying a plugin lets bbonductor follow BB releases while remaining independently forkable and installable.
+Everything else is on stable SDK surfaces.

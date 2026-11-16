@@ -1,14 +1,17 @@
 {
   "compilerOptions": {
+    "strict": true,
     "target": "ES2022",
     "module": "ESNext",
-    "moduleResolution": "Bundler",
+    "moduleResolution": "bundler",
     "jsx": "react-jsx",
-    "strict": true,
-    "skipLibCheck": true,
+    "lib": ["ES2022", "DOM"],
+    "types": ["node"],
+    "paths": {
+      "@/*": ["./*"]
+    },
     "noEmit": true,
-    "allowImportingTsExtensions": true,
-    "baseUrl": "."
+    "skipLibCheck": true
   },
-  "include": ["server.ts", "app.tsx", "src/**/*.ts", "src/**/*.tsx"]
+  "include": ["server.ts", "app.tsx", "src", "tests", "components", "lib", "hooks"]
 }
