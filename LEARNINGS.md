@@ -22,6 +22,8 @@ Non-obvious decisions and process knowledge for agents working on the Factory pl
 - **bb's public address does not reach plugin HTTP routes for outside callers.** `https://<handle>.getbb.app/api/v1/plugins/<id>/http/…` answers with bb connect's own sign-in page (401) before the plugin's token check runs; the same route on `127.0.0.1` reaches the plugin. A cloud service therefore cannot call the factory's `/prompt` hook directly. `bb connect expose` shares a whole port publicly, which would expose all of bb, so it was not used. For events that start in the cloud, poll from the laptop instead.
 - **Automations created with `--disabled` stay off** until `bb automation resume`; a paused automation shows no next run. bb must be running for the CLI to pause anything.
 
+- **Reinstalling the plugin from another source keeps its data.** `bb plugin remove` then `bb plugin install git:…@main` kept the per-project configuration (roles, memory paths), because the plugin database survives removal. After merging to main, run `bb plugin update bbonductor` (or reinstall) to pick the change up; a git install does not follow the workspace.
+
 ## Testing
 
 - **The fake plugin host proves the rules; only real bb proves the wiring.** Run both. The live check starts bb with its own data folder and ports, so it never touches `~/.bb`.
