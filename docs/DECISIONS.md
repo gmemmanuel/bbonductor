@@ -11,6 +11,19 @@ What Gideon has decided about the factory, newest first. Check here before re-op
 
 ---
 
+## 19 November 2026
+
+**Swimlanes in bb are populated by the project's sequencing skill, not by hand.** (Founder)
+"The swimlanes should operate headless." The Justus `sequence` skill tags each lane `bb` or `conductor` during the move off Conductor and pushes the `bb` lanes into the factory. The only thing the founder does in the factory's lanes is change the order inside a lane, so a sync never rewrites that order.
+
+**Swimlanes are regenerated every time a ticket is planned or shipped.** (Founder)
+
+**Linear stays the ticket system for now.** (Founder)
+"Eventually we might just want to rebuild what we use Linear for in bb… but not now."
+
+**The switch off Conductor is lane by lane.** (Founder)
+Warm up the orchestrator with questions, move free lanes to bb starting at plan review, and retire the Conductor planning thread whenever it is no longer needed.
+
 ## 16 November 2026 (fourth session)
 
 **The founder approves three things and nothing else: creating a ticket, mockups, and product decisions.** (Founder)

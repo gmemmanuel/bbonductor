@@ -9,6 +9,7 @@ export const CLI_COMMANDS = [
   { name: "status", summary: "Show lanes, tickets and the inbox", usage: "bb factory status [--project <id>] [--json]" },
   { name: "enqueue", summary: "Add a ticket to a lane", usage: "bb factory enqueue <key> <title…> [--lane <name>] [--pipeline <name>] [--brief <text>]" },
   { name: "lanes", summary: "Queue many tickets at once from JSON", usage: "bb factory lanes '<json>'   # {\"lanes\":[{\"name\":\"A\",\"items\":[{\"key\":\"JUS-1\",\"title\":\"…\",\"pipeline\":\"planned\",\"brief\":\"…\"}]}]}" },
+  { name: "sync", summary: "Make the lanes match a schedule: queue new tickets, move changed ones, drop unstarted ones no longer listed. Never reorders a lane or stops started work", usage: "bb factory sync '<json>'   # same JSON as lanes; list every ticket that belongs in the factory" },
   { name: "move", summary: "Move a ticket to a lane and slot", usage: "bb factory move <key> --lane <name> [--position <n>]" },
   { name: "advance", summary: "Send a ticket on to its next stage", usage: "bb factory advance <key> [--summary <text>]" },
   { name: "cancel", summary: "Take a ticket out of the factory", usage: "bb factory cancel <key>" },
@@ -154,6 +155,26 @@ export async function runCli(
           }
         }
         return ok({ report }, report.join("\n") || "Nothing to queue.");
+      }
+      case "sync": {
+        let plan: { lanes?: unknown };
+        try {
+          plan = JSON.parse(rest.join(" ")) as { lanes?: unknown };
+        } catch {
+          throw new FactoryError("`bb factory sync` takes one JSON argument; see `bb factory help`.");
+        }
+        if (!Array.isArray(plan.lanes)) throw new FactoryError('Expected {"lanes":[…]}.');
+        const lanes = (plan.lanes as { name?: unknown; items?: unknown }[]).map((lane) => ({
+          name: String(lane.name ?? ""),
+          items: (Array.isArray(lane.items) ? (lane.items as Record<string, unknown>[]) : []).map((entry) => ({
+            key: String(entry.key ?? ""),
+            title: String(entry.title ?? entry.key ?? ""),
+            ...(typeof entry.brief === "string" ? { brief: entry.brief } : {}),
+            ...(typeof entry.pipeline === "string" ? { pipeline: entry.pipeline } : {}),
+          })),
+        }));
+        const report = await engine.syncLanes(projectId(), lanes, ctx.threadId ?? null);
+        return ok({ report }, report.join("\n") || "Lanes already match.");
       }
       case "move": {
         const item = itemByKey(rest[0]);

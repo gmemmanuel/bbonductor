@@ -479,6 +479,39 @@ describe("configuration and CLI", () => {
     expect(status.stdout).toContain("JUS-3  running  Fix");
   });
 
+  it("syncs lanes to a schedule without reordering a lane or touching started work", async () => {
+    const sync = (lanes: unknown) =>
+      t.harness.behavior.runCli(["sync", JSON.stringify({ lanes })], { projectId: PROJECT });
+    await sync([
+      { name: "Lane 1", items: [{ key: "JUS-1", title: "One", pipeline: "reviewed" }, { key: "JUS-2", title: "Two" }, { key: "JUS-3", title: "Three" }] },
+      { name: "Lane 2", items: [{ key: "JUS-4", title: "Four", pipeline: "reviewed" }] },
+    ]);
+    expect((await t.item("JUS-1")).status).toBe("running");
+    expect((await t.item("JUS-2")).status).toBe("queued");
+
+    // The founder puts JUS-3 ahead of JUS-2 inside the lane.
+    await t.rpc("move", { itemId: (await t.item("JUS-3")).id, lane: "Lane 1", position: 2 });
+
+    // Next schedule: JUS-5 is new, JUS-2 left the board, JUS-4 changed lanes,
+    // and the running JUS-1 is no longer listed.
+    const second = await sync([
+      { name: "Lane 1", items: [{ key: "JUS-3", title: "Three" }, { key: "JUS-5", title: "Five" }, { key: "JUS-4", title: "Four" }] },
+    ]);
+    expect(second.stdout).toContain('JUS-5: queued in "Lane 1"');
+    expect(second.stdout).toContain("JUS-2: removed");
+    expect(second.stdout).toContain('JUS-4: moved from "Lane 2" to "Lane 1"');
+    expect((await t.item("JUS-1")).status).toBe("running");
+    expect((await t.item("JUS-4")).status).toBe("running");
+    const lane = (await t.state()).items
+      .filter((item) => item.lane === "Lane 1" && item.status !== "cancelled")
+      .map((item) => item.key);
+    expect(lane).toEqual(["JUS-1", "JUS-3", "JUS-5", "JUS-4"]);
+
+    // Running the same schedule again changes nothing.
+    expect((await sync([{ name: "Lane 1", items: [{ key: "JUS-3", title: "Three" }, { key: "JUS-5", title: "Five" }, { key: "JUS-4", title: "Four" }] }])).stdout).toBe("Lanes already match.");
+    expect(t.spawned).toHaveLength(2);
+  });
+
   it("keeps tickets and configuration across a plugin reload", async () => {
     await t.enqueue("JUS-1", "Coach", "reviewed");
     const reloaded = await t.harness.lifecycle.reload(plugin);
