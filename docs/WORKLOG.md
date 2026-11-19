@@ -30,6 +30,7 @@ In rough order.
 - Added `bb factory sync '<json>'`: queues tickets new to the schedule, moves a ticket whose lane changed, cancels an unstarted ticket that is no longer scheduled, and never reorders a lane or stops started work. Replaces `scripts/sequence-to-lanes.mjs`, which moved into the Justus `sequence` skill as `publish-bb.mjs`.
 - The founder could not find the Factory page: his saved navigation order still listed the old draft's panels. Put `bbonductor/factory` first in `sidebar.pluginPanelOrder`.
 - bb is now 0.50.1. Its Conductor layout plugin is still not released.
+- The Justus side shipped as justus#2093: lanes carry a `bb` or `conductor` tag, `publish-bb.mjs` pushes bb lanes here, and `create-plan` and `ship` end by running `sequence`. Checked end to end against a throwaway bb. No lane is tagged `bb` yet; the founder names which three move.
 
 ### 19 November 2026: approval rules live, Factory Droid added as a provider
 
