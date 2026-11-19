@@ -207,7 +207,10 @@ function Ticket({ item, config, lanes, rpc, run }: { item: Item; config: Config;
             : `${STATUS_LABEL[item.status]}${stageLabel === "" ? "" : ` · ${stageLabel}`}`}
         </span>
       </div>
-      <p className="text-muted-foreground">{item.title}</p>
+      <p className="text-muted-foreground">
+        {item.title}
+        {item.tier === null ? null : <span className="text-xs"> · tier {item.tier} plan</span>}
+      </p>
       <div className="flex flex-wrap items-center gap-1">
         {stages
           .filter((id) => item.threads[id] !== undefined)
@@ -328,6 +331,9 @@ function Roles({ state, rpc, run }: { state: FactoryState; rpc: Rpc; run: (work:
     save({ ...state.config, roles: { ...state.config.roles, [id]: { ...state.config.roles[id]!, ...patch } } });
   const usedBy = (roleId: string) => [
     ...Object.values(state.config.stages).filter((stage) => stage.role === roleId).map((stage) => stage.label),
+    ...Object.values(state.config.stages).flatMap((stage) =>
+      Object.entries(stage.tierRoles).filter(([, role]) => role === roleId).map(([tier]) => `${stage.label} for tier ${tier} plans`),
+    ),
     ...Object.values(state.config.agents).filter((agent) => agent.role === roleId).map((agent) => agent.label),
   ];
   return (
@@ -340,6 +346,7 @@ function Roles({ state, rpc, run }: { state: FactoryState; rpc: Rpc; run: (work:
               <th className="px-3 py-2 font-medium">Provider</th>
               <th className="px-3 py-2 font-medium">Model</th>
               <th className="px-3 py-2 font-medium">Thinking</th>
+              <th className="px-3 py-2 font-medium">If its limit runs out</th>
             </tr>
           </thead>
           <tbody>
@@ -356,7 +363,7 @@ function Roles({ state, rpc, run }: { state: FactoryState; rpc: Rpc; run: (work:
                     <div className="text-xs text-muted-foreground">{usedBy(id).join(", ")}</div>
                   </td>
                   <td className="px-3 py-2">
-                    <select className={selectClass} aria-label={`${role.label} provider`} value={role.providerId} onChange={(e) => setRole(id, { providerId: e.target.value, model: "", reasoningLevel: "" })}>
+                    <select className={selectClass} aria-label={`${role.label} provider`} value={role.providerId} onChange={(e) => setRole(id, { providerId: e.target.value, model: "", reasoningLevel: "", fallbackModel: "", fallbackReasoningLevel: "" })}>
                       <option value="">Project default</option>
                       {withCurrent(catalog.providers.map((p) => p.id), role.providerId).map((providerId) => (
                         <option key={providerId} value={providerId}>
@@ -381,6 +388,16 @@ function Roles({ state, rpc, run }: { state: FactoryState; rpc: Rpc; run: (work:
                       {withCurrent(reasoning, role.reasoningLevel).map((level) => (
                         <option key={level} value={level}>
                           {level}
+                        </option>
+                      ))}
+                    </select>
+                  </td>
+                  <td className="px-3 py-2">
+                    <select className={selectClass} aria-label={`${role.label} fallback model`} value={role.fallbackModel} onChange={(e) => setRole(id, { fallbackModel: e.target.value, fallbackReasoningLevel: "" })}>
+                      <option value="">Ask me</option>
+                      {withCurrent([...new Set(models.map((m) => m.id))].filter((modelId) => modelId !== role.model), role.fallbackModel).map((modelId) => (
+                        <option key={modelId} value={modelId}>
+                          {models.find((m) => m.id === modelId)?.name ?? modelId}
                         </option>
                       ))}
                     </select>

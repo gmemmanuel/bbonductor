@@ -5,6 +5,7 @@ import {
   createFakePluginHost,
   makePluginAgentConfigurationContext,
   makeThreadResponse,
+  makeTurnFailedEvent,
 } from "@get-bb/plugin-sdk/testing";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import plugin, { type FactoryState } from "../server.js";
@@ -27,6 +28,7 @@ function setup() {
   const spawned: Spawned[] = [];
   const sent: { threadId: string; text: string; senderThreadId?: string }[] = [];
   const retried: string[] = [];
+  const updated: { threadId: string; model?: string; reasoningLevel?: string }[] = [];
   let failSpawn = false;
   const host = createFakePluginHost({
     pluginId: "bbonductor",
@@ -65,6 +67,10 @@ function setup() {
           return {};
         },
         unpin: async () => ({}),
+        update: async (args: { threadId: string; model?: string; reasoningLevel?: string }) => {
+          updated.push(args);
+          return {};
+        },
         interactions: { list: async () => [] },
       },
       plugins: { callRpc: async () => ({ ok: true, channels: [] }) },
@@ -91,6 +97,7 @@ function setup() {
     spawned,
     sent,
     retried,
+    updated,
     rpc,
     state,
     enqueue,
@@ -443,7 +450,121 @@ describe("standing agents and messaging", () => {
   });
 });
 
+describe("builder tiers", () => {
+  it("builds a ticket on the model set for its plan's tier, and tier 1 or no tier on the base builder", async () => {
+    const { config } = await t.state();
+    await t.rpc("saveConfig", {
+      projectId: PROJECT,
+      config: {
+        ...config,
+        roles: {
+          ...config.roles,
+          build: { ...config.roles.build, providerId: "codex", model: "gpt-sol" },
+          "build-tier-2": { ...config.roles["build-tier-2"], providerId: "claude-code", model: "claude-opus-5-5" },
+          "build-tier-3": { ...config.roles["build-tier-3"], providerId: "claude-code", model: "claude-fable-5-2" },
+        },
+      },
+    });
+    const sync = JSON.stringify({
+      lanes: [
+        { name: "A", items: [{ key: "JUS-1", title: "One", pipeline: "reviewed", tier: 1 }] },
+        { name: "B", items: [{ key: "JUS-2", title: "Two", pipeline: "reviewed", tier: 2 }] },
+        { name: "C", items: [{ key: "JUS-3", title: "Three", pipeline: "reviewed", tier: 3 }] },
+        { name: "D", items: [{ key: "JUS-4", title: "Four", pipeline: "reviewed" }] },
+      ],
+    });
+    await t.harness.behavior.runCli(["sync", sync], { projectId: PROJECT });
+    expect(t.spawned.map((thread) => `${thread.title} ${thread.model}`)).toEqual([
+      "JUS-1 · Build gpt-sol",
+      "JUS-2 · Build claude-opus-5-5",
+      "JUS-3 · Build claude-fable-5-2",
+      "JUS-4 · Build gpt-sol",
+    ]);
+    // The tier chooses the builder only; the reviewer is the same for all.
+    await t.tool("factory_stage_done", "th_3", { outcome: "complete", summary: "Built." });
+    expect(t.spawned.at(-1)).not.toHaveProperty("model");
+  });
+});
+
+describe("falling back when a model's limit runs out", () => {
+  const limit = (threadId: string, resetsAtMs: number | null = Date.now() + 3_600_000) =>
+    t.harness.behavior
+      .emitThreadEvent("turn.failed", makeTurnFailedEvent({
+        threadId,
+        errorInfo: { category: "rate-limit", httpStatusCode: 429, providerCode: null },
+        rateLimits: resetsAtMs === null ? null : ({ windows: [{ resetsAtMs }] } as never),
+      } as never) as never)
+      .then(() => new Promise((resolve) => setTimeout(resolve, 20)));
+  const withFallback = async () => {
+    const { config } = await t.state();
+    await t.rpc("saveConfig", {
+      projectId: PROJECT,
+      config: {
+        ...config,
+        roles: {
+          ...config.roles,
+          build: { ...config.roles.build, providerId: "claude-code", model: "claude-fable-5-2", reasoningLevel: "medium", fallbackModel: "claude-opus-5-5" },
+        },
+      },
+    });
+  };
+
+  it("moves the thread to the fallback model and reruns the turn, without bothering the founder", async () => {
+    await withFallback();
+    await t.enqueue("JUS-1", "Coach", "reviewed");
+    await limit("th_1");
+    await t.emit("thread.failed", "th_1", { error: "usage limit reached" });
+    expect(t.updated).toEqual([{ threadId: "th_1", model: "claude-opus-5-5", reasoningLevel: "medium" }]);
+    expect(t.retried).toEqual(["th_1"]);
+
+    // The rerun starts: the ticket is running again and the failure leaves the inbox.
+    await t.emit("thread.active", "th_1");
+    expect((await t.item("JUS-1")).status).toBe("running");
+    expect((await t.state()).inbox).toEqual([]);
+  });
+
+  it("starts that role's new threads on the fallback until the limit resets", async () => {
+    await withFallback();
+    await t.enqueue("JUS-1", "Coach", "reviewed");
+    await limit("th_1", Date.now() + 3_600_000);
+    await t.enqueue("JUS-2", "Plan", "reviewed");
+    expect(t.spawned.at(-1)).toMatchObject({ title: "JUS-2 · Build", model: "claude-opus-5-5" });
+  });
+
+  it("switches a thread once: a limit on the fallback too goes to the founder", async () => {
+    await withFallback();
+    await t.enqueue("JUS-1", "Coach", "reviewed");
+    await limit("th_1");
+    await limit("th_1");
+    expect(t.updated).toHaveLength(1);
+    await t.emit("thread.failed", "th_1", { error: "usage limit reached" });
+    expect((await t.state()).inbox[0]).toMatchObject({ kind: "failed" });
+  });
+
+  it("leaves a role with no fallback alone", async () => {
+    await t.enqueue("JUS-1", "Coach", "reviewed");
+    await limit("th_1");
+    expect(t.updated).toEqual([]);
+    expect(t.retried).toEqual([]);
+  });
+});
+
 describe("configuration and CLI", () => {
+  it("gives a configuration saved before builder tiers existed tier 2 and 3 builders copied from its builder", async () => {
+    const { config } = await t.state();
+    const { "build-tier-2": _two, "build-tier-3": _three, ...roles } = config.roles;
+    const old = {
+      ...config,
+      roles: { ...roles, build: { ...roles.build, label: "Builder", providerId: "codex", model: "gpt-sol", reasoningLevel: "medium" } },
+      stages: { ...config.stages, build: { ...config.stages.build, tierRoles: {} } },
+    };
+    await t.rpc("saveConfig", { projectId: PROJECT, config: old });
+    const upgraded = (await t.state()).config;
+    expect(upgraded.roles.build.label).toBe("Builder, tier 1");
+    expect(upgraded.roles["build-tier-3"]).toMatchObject({ label: "Builder, tier 3", providerId: "codex", model: "gpt-sol", reasoningLevel: "medium" });
+    expect(upgraded.stages.build.tierRoles).toEqual({ "2": "build-tier-2", "3": "build-tier-3" });
+  });
+
   it("rejects a configuration whose stage names an undefined role", async () => {
     const { config } = await t.state();
     await expect(

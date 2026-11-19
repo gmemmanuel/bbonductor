@@ -25,6 +25,13 @@ In rough order.
 
 ## Log
 
+### 19 November 2026 (third session): builder tiers, model fallback, bb's Conductor layout
+
+- **Builder tiers.** Roles `build`, `build-tier-2`, `build-tier-3`; the build stage picks by the ticket's plan tier, which arrives through `sync`, `lanes` and `enqueue`. Saved configurations gain the two new roles as copies of the existing builder.
+- **Fallback model per role.** On a usage-limit failure the thread moves to the role's fallback and reruns; the role's new threads use the fallback until the reported reset. Page column "If its limit runs out".
+- **Installed bb's own Conductor layout from source** in the founder's bb, with one local change so Run reads Conductor's `[scripts.run.<name>]` form.
+- **Checked:** 37 behaviour tests, the live check. **Not checked:** a real usage-limit failure from Claude Code; Run against the real Justus project.
+
 ### 19 November 2026 (second session): lanes follow the sequencing skill
 
 - Added `bb factory sync '<json>'`: queues tickets new to the schedule, moves a ticket whose lane changed, cancels an unstarted ticket that is no longer scheduled, and never reorders a lane or stops started work. Replaces `scripts/sequence-to-lanes.mjs`, which moved into the Justus `sequence` skill as `publish-bb.mjs`.

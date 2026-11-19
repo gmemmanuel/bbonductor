@@ -82,7 +82,7 @@ export class FactoryStore {
       .prepare(`SELECT data FROM configs WHERE project_id = ?`)
       .get(projectId) as { data: string } | undefined;
     if (row === undefined) return structuredClone(DEFAULT_CONFIG);
-    return configSchema.parse(JSON.parse(row.data));
+    return withNewDefaults(configSchema.parse(JSON.parse(row.data)));
   }
 
   setConfig(projectId: string, config: Config): Config {
@@ -239,11 +239,39 @@ export class FactoryStore {
   }
 }
 
+/**
+ * A saved configuration predates roles added later. Bring in what it lacks
+ * without touching anything the founder set: the tiered builder roles start as
+ * copies of the builder he already chose.
+ */
+function withNewDefaults(config: Config): Config {
+  const build = config.stages.build;
+  if (build === undefined || Object.keys(build.tierRoles).length > 0) return config;
+  if (config.roles["build-tier-2"] !== undefined || config.roles["build-tier-3"] !== undefined) return config;
+  const base = config.roles[build.role];
+  if (base === undefined) return config;
+  return {
+    ...config,
+    roles: {
+      ...config.roles,
+      [build.role]: { ...base, label: base.label === "Builder" ? "Builder, tier 1" : base.label },
+      "build-tier-2": { ...base, label: "Builder, tier 2" },
+      "build-tier-3": { ...base, label: "Builder, tier 3" },
+    },
+    stages: {
+      ...config.stages,
+      build: { ...build, tierRoles: { "2": "build-tier-2", "3": "build-tier-3" } },
+    },
+  };
+}
+
 /** Cross-field rules zod cannot express: every reference must resolve. */
 export function validateConfig(config: Config): void {
   for (const [id, stage] of Object.entries(config.stages)) {
-    if (config.roles[stage.role] === undefined) {
-      throw new Error(`Stage "${id}" uses role "${stage.role}", which is not defined.`);
+    for (const role of [stage.role, ...Object.values(stage.tierRoles)]) {
+      if (config.roles[role] === undefined) {
+        throw new Error(`Stage "${id}" uses role "${role}", which is not defined.`);
+      }
     }
   }
   for (const [name, stages] of Object.entries(config.pipelines)) {

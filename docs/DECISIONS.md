@@ -11,6 +11,18 @@ What Gideon has decided about the factory, newest first. Check here before re-op
 
 ---
 
+## 19 November 2026 (later)
+
+**Builders are set per plan tier: tier 1, tier 2 and tier 3 each have their own model.** (Founder)
+"There should actually be settings for a tier 1, 2 and 3 builder and I can set different models." The tier comes from the plan's implementer tier line.
+
+**A role whose model runs out of usage falls back to another model without asking.** (Founder)
+"I would like anything using Fable to fall back seamlessly to Opus if Fable credits for the week run out." Built as a fallback model per role, same provider.
+
+**Plan and ship end with a light swimlane refresh, not the full sequencing run.** (Founder)
+
+**Use bb's own Conductor layout, built from its source, until bb releases it.** (Founder asked whether to build a stopgap; Agent chose installing bb's unreleased plugin instead)
+
 ## 19 November 2026
 
 **Swimlanes in bb are populated by the project's sequencing skill, not by hand.** (Founder)
