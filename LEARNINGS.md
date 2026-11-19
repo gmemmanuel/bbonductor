@@ -24,6 +24,8 @@ Non-obvious decisions and process knowledge for agents working on the Factory pl
 
 - **Reinstalling the plugin from another source keeps its data.** `bb plugin remove` then `bb plugin install git:…@main` kept the per-project configuration (roles, memory paths), because the plugin database survives removal. After merging to main, run `bb plugin update bbonductor` (or reinstall) to pick the change up; a git install does not follow the workspace.
 
+- **Factory Droid runs in bb through the built-in ACP provider; no third-party plugin is needed.** `droid exec --output-format acp` speaks ACP, and `bb plugin config provider-acp set customAgents '[{"id":"droid","displayName":"Factory Droid","command":"<path to droid>","args":["exec","--output-format","acp"]}]'` registers it as provider `acp-droid` with Droid's full model list. Two community Droid plugins exist; they were not installed because plugins are full-trust code and the built-in route does the job. Droid is not in bb's ACP registry, so `bb acp add` does not find it.
+
 ## Testing
 
 - **The fake plugin host proves the rules; only real bb proves the wiring.** Run both. The live check starts bb with its own data folder and ports, so it never touches `~/.bb`.
