@@ -9,6 +9,12 @@ export const roleSchema = z.object({
   model: z.string().max(120).default(""),
   reasoningLevel: z.string().max(40).default(""),
   permissionMode: z.enum(["", "accept-edits", "auto", "full"]).default(""),
+  /**
+   * Model (same provider) to switch to when this role's model hits a usage
+   * limit. Empty means no fallback: the limit lands in the founder's inbox.
+   */
+  fallbackModel: z.string().max(120).default(""),
+  fallbackReasoningLevel: z.string().max(40).default(""),
 });
 export type Role = z.infer<typeof roleSchema>;
 
@@ -19,6 +25,11 @@ export const stageSchema = z.object({
   prompt: z.string().min(1).max(8000),
   /** A review stage sends requested changes back to the stage before it. */
   review: z.boolean().default(false),
+  /**
+   * Roles for tickets whose plan declares an implementer tier, keyed "1".."3".
+   * A ticket with no tier, or a tier not listed, uses `role`.
+   */
+  tierRoles: z.record(z.string(), z.string()).default({}),
 });
 export type Stage = z.infer<typeof stageSchema>;
 
@@ -65,6 +76,8 @@ export const itemSchema = z.object({
   lane: z.string(),
   position: z.number(),
   pipeline: z.string(),
+  /** The plan's implementer tier (1 to 3), when it declares one. */
+  tier: z.number().int().min(1).max(3).nullable().default(null),
   stageIndex: z.number().int(),
   status: z.enum(ITEM_STATUSES),
   environmentId: z.string().nullable(),

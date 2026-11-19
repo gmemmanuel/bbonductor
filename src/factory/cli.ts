@@ -7,7 +7,7 @@ import type { FactoryStore } from "./store.js";
 
 export const CLI_COMMANDS = [
   { name: "status", summary: "Show lanes, tickets and the inbox", usage: "bb factory status [--project <id>] [--json]" },
-  { name: "enqueue", summary: "Add a ticket to a lane", usage: "bb factory enqueue <key> <title…> [--lane <name>] [--pipeline <name>] [--brief <text>]" },
+  { name: "enqueue", summary: "Add a ticket to a lane", usage: "bb factory enqueue <key> <title…> [--lane <name>] [--pipeline <name>] [--tier 1|2|3] [--brief <text>]" },
   { name: "lanes", summary: "Queue many tickets at once from JSON", usage: "bb factory lanes '<json>'   # {\"lanes\":[{\"name\":\"A\",\"items\":[{\"key\":\"JUS-1\",\"title\":\"…\",\"pipeline\":\"planned\",\"brief\":\"…\"}]}]}" },
   { name: "sync", summary: "Make the lanes match a schedule: queue new tickets, move changed ones, drop unstarted ones no longer listed. Never reorders a lane or stops started work", usage: "bb factory sync '<json>'   # same JSON as lanes; list every ticket that belongs in the factory" },
   { name: "move", summary: "Move a ticket to a lane and slot", usage: "bb factory move <key> --lane <name> [--position <n>]" },
@@ -20,7 +20,7 @@ export const CLI_COMMANDS = [
   { name: "answer", summary: "Answer an inbox entry", usage: "bb factory answer <entry-id> <text…>" },
   { name: "agent", summary: "Start or rotate a standing agent", usage: "bb factory agent start|rotate <agent-id> [--project <id>]" },
   { name: "prompt", summary: "Send a standing agent a prompt, starting it if needed (for automations)", usage: "bb factory prompt <agent-id> <text…> [--project <id>]" },
-  { name: "role", summary: "Set which model plays a role", usage: "bb factory role <role> [--provider <id>] [--model <id>] [--reasoning <level>] [--permission accept-edits|auto|full] [--project <id>]" },
+  { name: "role", summary: "Set which model plays a role", usage: "bb factory role <role> [--provider <id>] [--model <id>] [--reasoning <level>] [--permission accept-edits|auto|full] [--fallback-model <id>] [--fallback-reasoning <level>] [--project <id>]" },
   { name: "config", summary: "Print the factory configuration", usage: "bb factory config [--project <id>]" },
 ];
 
@@ -121,6 +121,7 @@ export async function runCli(
           brief: flag("brief"),
           lane: flag("lane"),
           pipeline: flag("pipeline"),
+          ...(flag("tier") === undefined ? {} : { tier: Number(flag("tier")) }),
           originThreadId: ctx.threadId ?? null,
         });
         return ok(item, `${item.key} queued in lane "${item.lane}" (${item.status}).`);
@@ -171,6 +172,7 @@ export async function runCli(
             title: String(entry.title ?? entry.key ?? ""),
             ...(typeof entry.brief === "string" ? { brief: entry.brief } : {}),
             ...(typeof entry.pipeline === "string" ? { pipeline: entry.pipeline } : {}),
+            ...(entry.tier === 1 || entry.tier === 2 || entry.tier === 3 ? { tier: entry.tier } : {}),
           })),
         }));
         const report = await engine.syncLanes(projectId(), lanes, ctx.threadId ?? null);
@@ -262,6 +264,8 @@ export async function runCli(
           model: flag("model") ?? role.model,
           reasoningLevel: flag("reasoning") ?? role.reasoningLevel,
           permissionMode: (permission ?? role.permissionMode) as typeof role.permissionMode,
+          fallbackModel: flag("fallback-model") ?? role.fallbackModel,
+          fallbackReasoningLevel: flag("fallback-reasoning") ?? role.fallbackReasoningLevel,
         };
         store.setConfig(projectId(), { ...config, roles: { ...config.roles, [roleId]: next } });
         return ok(next, `${roleId}: ${describeRole(next)}`);
@@ -278,9 +282,10 @@ export async function runCli(
   }
 }
 
-export function describeRole(role: { providerId: string; model: string; reasoningLevel: string }): string {
+export function describeRole(role: { providerId: string; model: string; reasoningLevel: string; fallbackModel?: string }): string {
   const parts = [role.providerId, role.model, role.reasoningLevel].filter((part) => part !== "");
-  return parts.length === 0 ? "project default" : parts.join(" · ");
+  const base = parts.length === 0 ? "project default" : parts.join(" · ");
+  return role.fallbackModel ? `${base} (falls back to ${role.fallbackModel})` : base;
 }
 
 export function formatStatus(store: FactoryStore, projectId: string): string {

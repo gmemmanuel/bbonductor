@@ -66,6 +66,8 @@ Every state except `queued`, `done` and `cancelled` holds its lane and counts to
 - **One review pass.** A review that requests changes is recorded as passed. Findings go to the author's existing thread; when the author reports done, the ticket skips that review unless the author passes `rereview`.
 - **Findings with no author stage** (a ticket queued already planned) go to the thread that queued it, usually the orchestrator, which fixes the plan and runs `bb factory advance`.
 - **Silence is handled.** A stage thread that goes idle without reporting gets one reminder. The second time, the ticket is `stalled` and the founder is told.
+- **Builder tiers.** A stage may name a role per plan tier (`tierRoles`); the ticket's tier picks it, and a ticket without one uses the stage's own role.
+- **Fallback on a usage limit.** A role may name a fallback model. When a factory thread's turn fails on a usage limit, the thread is moved to the fallback and rerun once, and the role's new threads start on the fallback until the limit's reported reset. With no fallback the failure goes to the inbox.
 - **Tools are scoped.** Stage threads get report, ask and message. Standing agents also get enqueue and status. Other threads get nothing and use the CLI.
 - **The inbox spans projects.** It is the founder's single queue.
 

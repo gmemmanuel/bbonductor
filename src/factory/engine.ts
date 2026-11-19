@@ -45,6 +45,8 @@ export interface Effects {
   spawn(request: SpawnRequest): Promise<{ threadId: string; environmentId: string | null }>;
   send(threadId: string, text: string, senderThreadId?: string): Promise<void>;
   retry(threadId: string): Promise<void>;
+  /** Change the model an existing thread runs on. */
+  switchModel(threadId: string, model: string, reasoningLevel: string): Promise<void>;
   /** The worktree a thread runs in; null until bb has provisioned it. */
   environmentOf(threadId: string): Promise<string | null>;
   /** Unpin a standing agent's thread once a fresh one replaces it. Must not throw. */
@@ -76,6 +78,7 @@ export interface EnqueueInput {
   brief?: string;
   lane?: string;
   pipeline?: string;
+  tier?: number | null;
   originThreadId?: string | null;
 }
 
@@ -140,6 +143,7 @@ export class FactoryEngine {
         lane,
         position: siblings.reduce((max, s) => Math.max(max, s.position), 0) + 1,
         pipeline,
+        tier: input.tier ?? null,
         stageIndex: 0,
         status: "queued",
         environmentId: null,
@@ -187,7 +191,7 @@ export class FactoryEngine {
    */
   syncLanes(
     projectId: string,
-    lanes: { name: string; items: { key: string; title: string; brief?: string; pipeline?: string }[] }[],
+    lanes: { name: string; items: { key: string; title: string; brief?: string; pipeline?: string; tier?: number }[] }[],
     originThreadId: string | null,
   ): Promise<string[]> {
     return this.exclusive(async () => {
@@ -213,9 +217,13 @@ export class FactoryEngine {
           if (existing !== null && existing.status === "done") {
             report.push(`${key}: already finished here`);
           } else if (existing !== null && existing.status !== "cancelled") {
+            // A plan's tier can change while its ticket waits; follow it until the build starts.
+            const tier = entry.tier ?? existing.tier;
+            const retiered = tier !== existing.tier && existing.status === "queued";
+            if (retiered) this.store.saveItem({ ...existing, tier });
             if (existing.lane === laneName) continue;
             const position = siblings().reduce((max, item) => Math.max(max, item.position), 0) + 1;
-            this.store.saveItem({ ...existing, lane: laneName, position });
+            this.store.saveItem({ ...existing, tier: retiered ? tier : existing.tier, lane: laneName, position });
             report.push(`${key}: moved from "${existing.lane}" to "${laneName}"`);
           } else {
             const now = Date.now();
@@ -228,6 +236,7 @@ export class FactoryEngine {
               lane: laneName,
               position: siblings().reduce((max, item) => Math.max(max, item.position), 0) + 1,
               pipeline,
+              tier: entry.tier ?? null,
               stageIndex: 0,
               status: "queued",
               environmentId: null,
@@ -309,7 +318,10 @@ export class FactoryEngine {
   private async runStage(item: Item, config: Config): Promise<Item> {
     const stageId = config.pipelines[item.pipeline]?.[item.stageIndex];
     const stage = stageId === undefined ? undefined : config.stages[stageId];
-    const role = stage === undefined ? undefined : config.roles[stage.role];
+    const roleId =
+      stage === undefined ? undefined : (stage.tierRoles[String(item.tier ?? "")] ?? stage.role);
+    const configured = roleId === undefined ? undefined : config.roles[roleId];
+    const role = configured === undefined ? undefined : this.available(item.projectId, configured);
     if (stageId === undefined || stage === undefined || role === undefined) {
       return this.fail(item, `Stage ${item.stageIndex} of pipeline "${item.pipeline}" is not configured.`, null);
     }
@@ -657,11 +669,14 @@ export class FactoryEngine {
   onActive(threadId: string): Promise<void> {
     return this.exclusive(async () => {
       const current = this.currentStage(threadId);
-      if (current === null || current.item.status !== "stalled") return;
-      // The founder (or another agent) got it moving again by hand.
+      if (current === null) return;
+      const { status } = current.item;
+      if (status !== "stalled" && status !== "failed") return;
+      // The founder, another agent, or a switch to a fallback model got it
+      // moving again.
       this.store.saveItem({ ...current.item, status: "running", nudged: false });
       for (const entry of this.store.listInbox({ status: "open", threadId })) {
-        if (entry.kind !== "stalled") continue;
+        if (entry.kind !== "stalled" && entry.kind !== "failed") continue;
         this.store.saveInbox({
           ...entry,
           status: "answered",
@@ -670,6 +685,72 @@ export class FactoryEngine {
         });
       }
       this.effects.changed();
+    });
+  }
+
+  // -------------------------------------------------------- usage limits
+
+  /** provider|model that hit a usage limit -> when it is expected back. */
+  private readonly limited = new Map<string, number>();
+  /** Threads already moved to their fallback, so one limit is one switch. */
+  private readonly switched = new Set<string>();
+
+  private limitKey(projectId: string, role: Role): string {
+    return `${projectId}|${role.providerId}|${role.model}`;
+  }
+
+  /** The role as it should run right now: on its fallback while its model is limited. */
+  private available(projectId: string, role: Role): Role {
+    const until = this.limited.get(this.limitKey(projectId, role));
+    if (role.fallbackModel === "" || until === undefined) return role;
+    if (until <= Date.now()) {
+      this.limited.delete(this.limitKey(projectId, role));
+      return role;
+    }
+    return {
+      ...role,
+      model: role.fallbackModel,
+      reasoningLevel: role.fallbackReasoningLevel || role.reasoningLevel,
+    };
+  }
+
+  private roleOf(threadId: string): { projectId: string; role: Role } | null {
+    const binding = this.store.getBinding(threadId);
+    if (binding === null) return null;
+    const config = this.store.getConfig(binding.projectId);
+    let roleId: string | undefined;
+    if (binding.agentId !== null) roleId = config.agents[binding.agentId]?.role;
+    else if (binding.stage !== null) {
+      const stage = config.stages[binding.stage];
+      const item = binding.itemId === null ? null : this.store.getItem(binding.itemId);
+      roleId = stage === undefined ? undefined : (stage.tierRoles[String(item?.tier ?? "")] ?? stage.role);
+    }
+    const role = roleId === undefined ? undefined : config.roles[roleId];
+    return role === undefined ? null : { projectId: binding.projectId, role };
+  }
+
+  /**
+   * A factory thread's turn failed on a usage limit. If its role names a
+   * fallback, move the thread to it and rerun the turn, and start that role's
+   * new threads on the fallback until the limit resets. Returns whether it
+   * switched; when it did not, the failure reaches the founder as usual.
+   */
+  onLimit(threadId: string, resetsAtMs: number | null): Promise<boolean> {
+    return this.exclusive(async () => {
+      const found = this.roleOf(threadId);
+      if (found === null || found.role.fallbackModel === "" || this.switched.has(threadId)) return false;
+      const { projectId, role } = found;
+      // Without a reported reset, try the first choice again after an hour.
+      this.limited.set(this.limitKey(projectId, role), resetsAtMs ?? Date.now() + 60 * 60 * 1000);
+      this.switched.add(threadId);
+      await this.effects.switchModel(
+        threadId,
+        role.fallbackModel,
+        role.fallbackReasoningLevel || role.reasoningLevel,
+      );
+      await this.effects.retry(threadId);
+      this.effects.log(`${this.describeThread(threadId)} hit a usage limit on ${role.model}; continuing on ${role.fallbackModel}.`);
+      return true;
     });
   }
 
@@ -773,8 +854,9 @@ export class FactoryEngine {
   private async spawnAgent(projectId: string, agentId: string, preface: string): Promise<AgentState> {
     const config = this.store.getConfig(projectId);
     const agent = this.requireAgentConfig(projectId, agentId);
-    const role = config.roles[agent.role];
-    if (role === undefined) throw new FactoryError(`Role "${agent.role}" is not defined.`);
+    const configuredRole = config.roles[agent.role];
+    if (configuredRole === undefined) throw new FactoryError(`Role "${agent.role}" is not defined.`);
+    const role = this.available(projectId, configuredRole);
     const prompt = [
       preface,
       `You are the ${agent.label} for this project: a standing role, not a one-off task. Use the \`${agent.skill}\` skill now; it is your charter.`,

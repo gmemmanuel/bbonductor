@@ -144,6 +144,13 @@ export default async function plugin(bb: BbPluginApi) {
     async retry(threadId) {
       await bb.sdk.threads.retry({ threadId, reason: "Retried from the Factory inbox" });
     },
+    async switchModel(threadId, model, reasoningLevel) {
+      await bb.sdk.threads.update({
+        threadId,
+        model,
+        ...(reasoningLevel === "" ? {} : { reasoningLevel }),
+      });
+    },
     async environmentOf(threadId) {
       return (await bb.sdk.threads.get({ threadId })).environmentId;
     },
@@ -201,6 +208,17 @@ export default async function plugin(bb: BbPluginApi) {
   });
   bb.events.on("thread.failed", ({ thread, error }) => {
     guard("failed", () => engine.onFailed(thread.id, error));
+  });
+  // A usage limit on a role's first-choice model: carry on with its fallback.
+  bb.events.on("turn.failed", (event) => {
+    const category = event.errorInfo?.category;
+    if (category !== "rate-limit" && category !== "billing" && category !== "budget-exceeded") return;
+    const resets = (event.rateLimits?.windows ?? [])
+      .map((window) => window.resetsAtMs)
+      .filter((value): value is number => typeof value === "number");
+    guard("limit", async () => {
+      await engine.onLimit(event.threadId, resets.length === 0 ? null : Math.max(...resets));
+    });
   });
   bb.events.on("thread.archived", ({ thread }) => {
     guard("archived", () => engine.onGone(thread.id));
@@ -290,6 +308,7 @@ export default async function plugin(bb: BbPluginApi) {
       title: z.string().min(1).max(300),
       brief: z.string().max(8000).optional().describe("What the first stage needs that the ticket does not already say."),
       lane: z.string().max(60).optional(),
+      tier: z.number().int().min(1).max(3).optional().describe("The plan's implementer tier, if it declares one."),
       pipeline: z.string().optional().describe("Which pipeline to run. Omit for the project default."),
     }),
     execute: (input, { threadId, projectId }) =>

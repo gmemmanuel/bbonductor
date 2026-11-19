@@ -12,6 +12,8 @@ export const DEFAULT_CONFIG: Config = {
       model: "",
       reasoningLevel: "",
       permissionMode: "",
+      fallbackModel: "",
+      fallbackReasoningLevel: "",
     },
     "plan-review": {
       label: "Plan reviewer",
@@ -19,13 +21,35 @@ export const DEFAULT_CONFIG: Config = {
       model: "",
       reasoningLevel: "",
       permissionMode: "",
+      fallbackModel: "",
+      fallbackReasoningLevel: "",
     },
     build: {
-      label: "Builder",
+      label: "Builder, tier 1",
       providerId: "",
       model: "",
       reasoningLevel: "",
       permissionMode: "",
+      fallbackModel: "",
+      fallbackReasoningLevel: "",
+    },
+    "build-tier-2": {
+      label: "Builder, tier 2",
+      providerId: "",
+      model: "",
+      reasoningLevel: "",
+      permissionMode: "",
+      fallbackModel: "",
+      fallbackReasoningLevel: "",
+    },
+    "build-tier-3": {
+      label: "Builder, tier 3",
+      providerId: "",
+      model: "",
+      reasoningLevel: "",
+      permissionMode: "",
+      fallbackModel: "",
+      fallbackReasoningLevel: "",
     },
     "code-review": {
       label: "Code reviewer",
@@ -33,6 +57,8 @@ export const DEFAULT_CONFIG: Config = {
       model: "",
       reasoningLevel: "",
       permissionMode: "",
+      fallbackModel: "",
+      fallbackReasoningLevel: "",
     },
     ship: {
       label: "Shipper",
@@ -40,6 +66,8 @@ export const DEFAULT_CONFIG: Config = {
       model: "",
       reasoningLevel: "",
       permissionMode: "",
+      fallbackModel: "",
+      fallbackReasoningLevel: "",
     },
     watch: {
       label: "Watch",
@@ -47,6 +75,8 @@ export const DEFAULT_CONFIG: Config = {
       model: "",
       reasoningLevel: "",
       permissionMode: "",
+      fallbackModel: "",
+      fallbackReasoningLevel: "",
     },
     "harness-improver": {
       label: "Harness improver",
@@ -54,6 +84,8 @@ export const DEFAULT_CONFIG: Config = {
       model: "",
       reasoningLevel: "",
       permissionMode: "",
+      fallbackModel: "",
+      fallbackReasoningLevel: "",
     },
   },
   stages: {
@@ -61,6 +93,7 @@ export const DEFAULT_CONFIG: Config = {
       label: "Plan",
       role: "orchestrator",
       review: false,
+      tierRoles: {},
       prompt:
         "Use the `create-plan` skill to plan {key}: {title}.\n\n{brief}",
     },
@@ -68,6 +101,7 @@ export const DEFAULT_CONFIG: Config = {
       label: "Review plan",
       role: "plan-review",
       review: true,
+      tierRoles: {},
       prompt:
         "Use the `review-plan` skill to independently review the plan for {key}: {title}.\n\n{previous}",
     },
@@ -75,6 +109,7 @@ export const DEFAULT_CONFIG: Config = {
       label: "Build",
       role: "build",
       review: false,
+      tierRoles: { "2": "build-tier-2", "3": "build-tier-3" },
       prompt:
         "Use the `execute-plan` skill to build {key}: {title}.\n\n{brief}\n\n{previous}",
     },
@@ -82,6 +117,7 @@ export const DEFAULT_CONFIG: Config = {
       label: "Review code",
       role: "code-review",
       review: true,
+      tierRoles: {},
       prompt:
         "Use the `review-code` skill to independently review the complete branch for {key}: {title}.\n\n{previous}",
     },
@@ -89,6 +125,7 @@ export const DEFAULT_CONFIG: Config = {
       label: "Ship",
       role: "ship",
       review: false,
+      tierRoles: {},
       prompt:
         "Use the `ship` skill to close out and ship {key}: {title}.\n\n{previous}",
     },
@@ -96,6 +133,7 @@ export const DEFAULT_CONFIG: Config = {
       label: "Fix",
       role: "build",
       review: false,
+      tierRoles: {},
       prompt:
         "{key}: {title} is a Small bug. Fix it on the fast path your project instructions describe, then ship it.\n\n{brief}",
     },

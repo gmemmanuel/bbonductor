@@ -29,6 +29,11 @@ Non-obvious decisions and process knowledge for agents working on the Factory pl
 - **A reused plugin id inherits the user's saved navigation.** `sidebar.pluginPanelOrder` still listed the old draft's `bbonductor/workspaces` and `bbonductor/configuration`, so the new `bbonductor/factory` page was not where the founder looked. Fix with `bb settings ui set sidebar.pluginPanelOrder '[…]'`.
 - **A schedule sync must not own order inside a lane.** The sequencing skill decides which tickets exist and which lane each is in; the founder reorders inside a lane in bb. `syncLanes` therefore only appends, moves between lanes, and cancels unstarted tickets that left the schedule.
 
+- **bb's unreleased built-ins can be installed from source.** Plugins listed in bb's `scripts/forkable-plugins.json` build outside the monorepo: scaffold with `bb plugin new`, copy the plugin's source over it, and pull the `@/components/ui/*` files it imports with `npx shadcn add @bb/<name>` (the scaffold's `components.json` points at the registry for the installed bb version). This is how the Conductor layout runs in the founder's bb; the copy lives in `~/Development/bb-plugin-conductor-layout` with its own notes.
+- **bb has no model fallback of its own for plugins to configure.** The built-in Provider retry plugin waits for a limit to reset; it never changes model. The factory does it on `turn.failed` (categories `rate-limit`, `billing`, `budget-exceeded`): `threads.update({ model })` then `threads.retry`. A thread switches once. Which category a real weekly Claude limit reports is unverified.
+- **A thread that becomes active again is running, whatever failed before.** `turn.failed` and `thread.failed` arrive in no guaranteed order, so the fallback does not try to suppress the failure entry; `onActive` clears it when the rerun starts.
+- **A saved per-project configuration never sees new default roles.** `withNewDefaults` adds what a saved configuration lacks (the tiered builders, copied from the existing builder) on read, without touching what the founder set.
+
 ## Testing
 
 - **The fake plugin host proves the rules; only real bb proves the wiring.** Run both. The live check starts bb with its own data folder and ports, so it never touches `~/.bb`.
