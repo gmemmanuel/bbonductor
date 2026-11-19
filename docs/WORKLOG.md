@@ -26,6 +26,12 @@ In rough order.
 
 ## Log
 
+### 19 November 2026: approval rules live, Factory Droid added as a provider
+
+- Pull request #3 was merged; updated the installed plugin to it and confirmed the installed orchestrator charter contains the approval rules.
+- Registered Factory Droid in the founder's bb as provider `acp-droid` through bb's built-in ACP support. bb lists 76 models through it, including Gemini 4 Carbon. Listing models was the only check; no Droid thread has run in bb yet, so tool calls, approvals and the factory tools are untested on it.
+- Founder's plan for the switch: warm up the orchestrator with questions, then move Conductor lanes to bb one at a time as each frees up, starting at plan review.
+
 ### 16 November 2026 (third session): new schedule, Watch hands off to the planner, Justus checks at any cadence
 
 - **Founder corrected the schedule.** Daily checks are watches, errors and traces at 5:00 every day; the retro is Mondays 4:00; computer cleanup every three days by the harness improver; no weekly evidence review. All three automations exist and are paused at his request.
