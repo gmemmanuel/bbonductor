@@ -24,7 +24,6 @@ Gideon builds the Justus app (and smaller projects) with a pipeline of independe
 | `skills/` | Agent-facing instructions shipped with the plugin (worker protocol; orchestrator, watch and harness-improver charters) |
 | `tests/factory.test.ts` | Behaviour tests on the SDK's fake plugin host |
 | `scripts/live-check.mjs` | End-to-end check against a real, throwaway bb server |
-| `scripts/sequence-to-lanes.mjs` | Adapter from the Justus `sequence` skill's output to `bb factory lanes` input |
 | `components/`, `lib/`, `hooks/` | UI source vendored by `bb plugin new`. Ours to edit, but prefer leaving it alone |
 
 ## Rules

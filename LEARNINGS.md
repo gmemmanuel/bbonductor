@@ -26,6 +26,9 @@ Non-obvious decisions and process knowledge for agents working on the Factory pl
 
 - **Factory Droid runs in bb through the built-in ACP provider; no third-party plugin is needed.** `droid exec --output-format acp` speaks ACP, and `bb plugin config provider-acp set customAgents '[{"id":"droid","displayName":"Factory Droid","command":"<path to droid>","args":["exec","--output-format","acp"]}]'` registers it as provider `acp-droid` with Droid's full model list. Two community Droid plugins exist; they were not installed because plugins are full-trust code and the built-in route does the job. Droid is not in bb's ACP registry, so `bb acp add` does not find it.
 
+- **A reused plugin id inherits the user's saved navigation.** `sidebar.pluginPanelOrder` still listed the old draft's `bbonductor/workspaces` and `bbonductor/configuration`, so the new `bbonductor/factory` page was not where the founder looked. Fix with `bb settings ui set sidebar.pluginPanelOrder '[…]'`.
+- **A schedule sync must not own order inside a lane.** The sequencing skill decides which tickets exist and which lane each is in; the founder reorders inside a lane in bb. `syncLanes` therefore only appends, moves between lanes, and cancels unstarted tickets that left the schedule.
+
 ## Testing
 
 - **The fake plugin host proves the rules; only real bb proves the wiring.** Run both. The live check starts bb with its own data folder and ports, so it never touches `~/.bb`.

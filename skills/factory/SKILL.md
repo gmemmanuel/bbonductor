@@ -61,6 +61,7 @@ are not part of the factory:
 bb factory status                      # lanes, tickets, inbox
 bb factory enqueue JUS-12 "Title" --lane Coach --pipeline planned --brief "…"
 bb factory lanes '{"lanes":[{"name":"Coach","items":[{"key":"JUS-12","title":"…"}]}]}'
+bb factory sync '{"lanes":[…]}'        # make lanes match a schedule; never reorders a lane
 bb factory move JUS-12 --lane Plan --position 1
 bb factory advance JUS-12              # send a ticket on to its next stage
 bb factory cancel JUS-12

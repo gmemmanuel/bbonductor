@@ -17,7 +17,6 @@ In rough order.
 3. **Feedback that triggers a check when it arrives.** bb's public address cannot be called by the cloud function (see `LEARNINGS.md`), so plan a poller in Justus: a script automation every few minutes that asks preview for untriaged feedback newer than its marker, stays silent when there is none, and otherwise runs `bb factory prompt watch "…"` with the row ids. The `/prompt` hook is there if a safe public route appears.
 4. **Revisit ticket approval around 30 November 2026.** The founder approves every new ticket for the first week or two; ask then whether the orchestrator may create them on its own.
 5. **Teach the Justus instructions about the factory.** `AGENTS.md` there says the founder launches reviews and ship; under the factory the factory does.
-6. **Move the sequence adapter into the Justus `sequence` skill.** `scripts/sequence-to-lanes.mjs` belongs beside the skill.
 7. **Install `tools/dashboard` dependencies in Justus worktrees** if a lane ever runs outside the main checkout.
 8. **Rotate standing agents by context use.** Watch runs daily and will fill up first.
 9. **Editing pipelines and stage prompts in the page.**
@@ -25,6 +24,12 @@ In rough order.
 11. **Install bb's Conductor layout when it is released.**
 
 ## Log
+
+### 19 November 2026 (second session): lanes follow the sequencing skill
+
+- Added `bb factory sync '<json>'`: queues tickets new to the schedule, moves a ticket whose lane changed, cancels an unstarted ticket that is no longer scheduled, and never reorders a lane or stops started work. Replaces `scripts/sequence-to-lanes.mjs`, which moved into the Justus `sequence` skill as `publish-bb.mjs`.
+- The founder could not find the Factory page: his saved navigation order still listed the old draft's panels. Put `bbonductor/factory` first in `sidebar.pluginPanelOrder`.
+- bb is now 0.50.1. Its Conductor layout plugin is still not released.
 
 ### 19 November 2026: approval rules live, Factory Droid added as a provider
 

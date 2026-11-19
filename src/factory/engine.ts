@@ -176,6 +176,84 @@ export class FactoryEngine {
     });
   }
 
+  /**
+   * Make the lanes match a schedule produced elsewhere (a sequencing skill).
+   * The schedule decides which tickets exist and which lane each is in; the
+   * founder decides the order inside a lane, so that is never rewritten.
+   *   - a ticket new to the factory is queued at the end of its lane
+   *   - a ticket whose lane changed moves to the end of the new lane
+   *   - a ticket that has not started and is no longer scheduled is cancelled
+   *   - work that has started is never stopped or reordered by a sync
+   */
+  syncLanes(
+    projectId: string,
+    lanes: { name: string; items: { key: string; title: string; brief?: string; pipeline?: string }[] }[],
+    originThreadId: string | null,
+  ): Promise<string[]> {
+    return this.exclusive(async () => {
+      const config = this.store.getConfig(projectId);
+      const report: string[] = [];
+      const scheduled = new Set<string>();
+      for (const lane of lanes) {
+        const laneName = lane.name.trim();
+        if (laneName === "") throw new FactoryError("Every lane needs a name.");
+        for (const entry of lane.items) {
+          const key = entry.key.trim();
+          if (key === "" || scheduled.has(key.toUpperCase())) {
+            throw new FactoryError(`Ticket "${key}" is missing or listed twice.`);
+          }
+          scheduled.add(key.toUpperCase());
+          const pipeline = entry.pipeline ?? config.defaultPipeline;
+          if (config.pipelines[pipeline] === undefined) {
+            throw new FactoryError(`${key}: unknown pipeline "${pipeline}".`);
+          }
+          const existing = this.store.findItemByKey(projectId, key);
+          const siblings = () =>
+            this.store.listItems(projectId).filter((item) => item.lane === laneName && !CLOSED.has(item.status));
+          if (existing !== null && existing.status === "done") {
+            report.push(`${key}: already finished here`);
+          } else if (existing !== null && existing.status !== "cancelled") {
+            if (existing.lane === laneName) continue;
+            const position = siblings().reduce((max, item) => Math.max(max, item.position), 0) + 1;
+            this.store.saveItem({ ...existing, lane: laneName, position });
+            report.push(`${key}: moved from "${existing.lane}" to "${laneName}"`);
+          } else {
+            const now = Date.now();
+            this.store.saveItem({
+              id: newId("itm"),
+              projectId,
+              key,
+              title: entry.title.trim() || key,
+              brief: (entry.brief ?? "").trim(),
+              lane: laneName,
+              position: siblings().reduce((max, item) => Math.max(max, item.position), 0) + 1,
+              pipeline,
+              stageIndex: 0,
+              status: "queued",
+              environmentId: null,
+              threads: {},
+              passedReviews: [],
+              lastSummary: "",
+              originThreadId,
+              nudged: false,
+              createdAt: now,
+              updatedAt: now,
+            });
+            report.push(`${key}: queued in "${laneName}"`);
+          }
+        }
+      }
+      for (const item of this.store.listItems(projectId)) {
+        if (item.status !== "queued" || scheduled.has(item.key.toUpperCase())) continue;
+        this.store.saveItem({ ...item, status: "cancelled" });
+        report.push(`${item.key}: removed (not started, and no longer scheduled)`);
+      }
+      await this.scheduleLocked(projectId);
+      this.effects.changed();
+      return report;
+    });
+  }
+
   cancel(itemId: string): Promise<Item> {
     return this.exclusive(async () => {
       const item = this.requireItem(itemId);
