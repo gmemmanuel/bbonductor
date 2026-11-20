@@ -85,6 +85,7 @@ const KIND_LABEL: Record<InboxEntry["kind"], string> = {
   stalled: "Stalled",
   failed: "Failed",
   blocked: "Blocked",
+  check: "Try before it ships",
 };
 
 function InboxCard({ entry, rpc, run }: { entry: InboxEntry; rpc: Rpc; run: (work: Promise<unknown>) => void }) {
@@ -142,15 +143,20 @@ function InboxCard({ entry, rpc, run }: { entry: InboxEntry; rpc: Rpc; run: (wor
             <Input
               value={answer}
               onChange={(event) => setAnswer(event.target.value)}
-              placeholder={entry.kind === "question" ? "Your decision" : "Tell the agent what to do"}
+              placeholder={entry.kind === "question" ? "Your decision" : entry.kind === "check" ? "What to change (sends it back to the builder)" : "Tell the agent what to do"}
               aria-label={`Answer ${entry.from}`}
               className="h-10 w-full basis-full text-base sm:h-9 sm:w-auto sm:min-w-48 sm:flex-1 sm:basis-0 sm:text-sm"
             />
-            <Button type="submit" size="sm" className="h-10 flex-1 sm:h-8 sm:flex-none" disabled={answer.trim() === ""}>
-              Send
+            <Button type="submit" size="sm" variant={entry.kind === "check" ? "outline" : "default"} className="h-10 flex-1 sm:h-8 sm:flex-none" disabled={answer.trim() === ""}>
+              {entry.kind === "check" ? "Send back" : "Send"}
             </Button>
           </>
         )}
+        {entry.kind === "check" ? (
+          <Button type="button" size="sm" className="h-10 flex-1 sm:h-8 sm:flex-none" onClick={() => run(rpc.call("approve", { entryId: entry.id }))}>
+            Approve and ship
+          </Button>
+        ) : null}
         {entry.kind === "failed" ? (
           <Button type="button" size="sm" variant="outline" onClick={() => run(rpc.call("retry", { entryId: entry.id }))}>
             Retry
@@ -176,6 +182,7 @@ const STATUS_STYLE: Record<Item["status"], string> = {
   running: "text-foreground",
   "needs-founder": "text-destructive",
   "with-planner": "text-foreground",
+  triage: "text-foreground",
   returned: "text-foreground",
   stalled: "text-destructive",
   failed: "text-destructive",
@@ -187,6 +194,7 @@ const STATUS_LABEL: Record<Item["status"], string> = {
   running: "Running",
   "needs-founder": "Needs you",
   "with-planner": "With plan reviewer",
+  triage: "With chief of staff",
   returned: "Returned to planner",
   stalled: "Stalled",
   failed: "Failed",
@@ -324,11 +332,10 @@ function Roles({ state, rpc, run }: { state: FactoryState; rpc: Rpc; run: (work:
   return (
     <div className="space-y-3">
       <div className="overflow-x-auto rounded-lg border border-border">
-        <table className="w-full min-w-[820px] text-left text-sm">
+        <table className="w-full min-w-[700px] text-left text-sm">
           <thead className="bg-secondary/40 text-xs text-muted-foreground">
             <tr>
               <th className="px-3 py-2 font-medium">Role</th>
-              <th className="px-3 py-2 font-medium">Provider</th>
               <th className="px-3 py-2 font-medium">Model</th>
               <th className="px-3 py-2 font-medium">Thinking</th>
               <th className="px-3 py-2 font-medium">If its limit runs out</th>
@@ -348,22 +355,29 @@ function Roles({ state, rpc, run }: { state: FactoryState; rpc: Rpc; run: (work:
                     <div className="text-xs text-muted-foreground">{usedBy(id).join(", ")}</div>
                   </td>
                   <td className="px-3 py-2">
-                    <select className={cn(selectClass, "w-36")} aria-label={`${role.label} provider`} value={role.providerId} onChange={(e) => setRole(id, { providerId: e.target.value, model: "", reasoningLevel: "" })}>
+                    <select
+                      className={cn(selectClass, "w-56")}
+                      aria-label={`${role.label} model`}
+                      value={role.model === "" ? "" : `${role.providerId}|${role.model}`}
+                      onChange={(e) => {
+                        const [providerId = "", model = ""] = e.target.value.split("|");
+                        setRole(id, { providerId, model, reasoningLevel: "" });
+                      }}
+                    >
                       <option value="">Project default</option>
-                      {withCurrent(catalog.providers.map((p) => p.id), role.providerId).map((providerId) => (
-                        <option key={providerId} value={providerId}>
-                          {catalog.providers.find((p) => p.id === providerId)?.name ?? providerId}
-                        </option>
-                      ))}
-                    </select>
-                  </td>
-                  <td className="px-3 py-2">
-                    <select className={cn(selectClass, "w-48")} aria-label={`${role.label} model`} value={role.model} onChange={(e) => setRole(id, { model: e.target.value, reasoningLevel: "" })}>
-                      <option value="">Default</option>
-                      {withCurrent([...new Set(models.map((m) => m.id))], role.model).map((modelId) => (
-                        <option key={modelId} value={modelId}>
-                          {models.find((m) => m.id === modelId)?.name ?? modelId}
-                        </option>
+                      {role.model !== "" && !catalog.models.some((m) => m.providerId === role.providerId && m.id === role.model) ? (
+                        <option value={`${role.providerId}|${role.model}`}>{role.model}</option>
+                      ) : null}
+                      {catalog.providers.map((provider) => (
+                        <optgroup key={provider.id} label={provider.name}>
+                          {catalog.models
+                            .filter((m) => m.providerId === provider.id)
+                            .map((m) => (
+                              <option key={m.id} value={`${provider.id}|${m.id}`}>
+                                {m.name}
+                              </option>
+                            ))}
+                        </optgroup>
                       ))}
                     </select>
                   </td>

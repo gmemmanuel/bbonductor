@@ -20,7 +20,7 @@ Do that work to the project's own standard. Then report exactly once:
 |---|---|
 | The stage is completely finished | `factory_stage_done` with `outcome: "complete"` |
 | You are a reviewer and the author must change something you cannot land yourself | `factory_stage_done` with `outcome: "changes_requested"` |
-| Only the founder can decide | `factory_ask_founder`, then end your turn |
+| You think the founder must decide | `factory_ask_founder`, then end your turn. It goes to the chief of staff first, who may answer it |
 | Something must go back to the planner | `factory_ask_planner`, then end your turn |
 | You cannot proceed for another reason | `factory_stage_done` with `outcome: "blocked"` |
 
@@ -43,6 +43,17 @@ Rules:
   decide, update the plan if it changes, and reply with `factory_message` to
   `KEY:stage`. The founder never carries these, so never put one in his inbox
   or report it as blocked.
+- **Anything a user will see is tried by the founder before it ships.** If
+  your ticket changes a screen, copy, or behavior a user notices, pass
+  `founder_check` with `factory_stage_done`. Write it for him: exactly what
+  changed, screen by screen; the branch; how to run it; a dev account that
+  shows the change, either one that exists or one you seeded for this, with
+  how to sign in; and numbered steps saying what he should see at each. Ship
+  starts only after he approves. If he sends notes, they come to the builder.
+- **The chief of staff stands between you and the founder.** A blocked report
+  or a founder question reaches it first. It may answer you itself (budgets,
+  technical choices, anything the project's rules settle) or take it to the
+  founder in plain words. Either way the reply arrives in this thread.
 - **Ask the founder only for founder decisions:** product behavior, scope,
   approval of a mockup, or a contradiction with a recorded decision. Give the situation, the options
   with what the user would see in each, and your recommendation. Decide

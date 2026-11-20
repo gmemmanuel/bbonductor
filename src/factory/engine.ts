@@ -45,6 +45,8 @@ export interface Effects {
   spawn(request: SpawnRequest): Promise<{ threadId: string; environmentId: string | null }>;
   send(threadId: string, text: string, senderThreadId?: string): Promise<void>;
   retry(threadId: string): Promise<void>;
+  /** Archive a finished ticket's thread so bb can remove its worktree. Must not throw. */
+  archive(threadId: string): void;
   /** Change the model an existing thread runs on. */
   switchModel(threadId: string, model: string, reasoningLevel: string): Promise<void>;
   /** The worktree a thread runs in; null until bb has provisioned it. */
@@ -64,6 +66,7 @@ const ACTIVE = new Set<Item["status"]>([
   "running",
   "needs-founder",
   "with-planner",
+  "triage",
   "returned",
   "stalled",
   "failed",
@@ -88,6 +91,8 @@ export interface StageDoneInput {
   summary: string;
   /** Author asks for the review to run again after their fixes. */
   rereview?: boolean;
+  /** What the founder must try on the branch before it ships. */
+  founderCheck?: string;
 }
 
 export interface AskInput {
@@ -95,6 +100,8 @@ export interface AskInput {
   context?: string;
   options?: string[];
   recommendation?: string;
+  /** Chief of staff only: the thread this is about, as "KEY" or "KEY:stage". */
+  about?: string;
 }
 
 export class FactoryEngine {
@@ -151,6 +158,7 @@ export class FactoryEngine {
         threads: {},
         passedReviews: [],
         lastSummary: "",
+        founderCheck: null,
         consult: null,
         originThreadId: input.originThreadId ?? null,
         nudged: false,
@@ -245,6 +253,7 @@ export class FactoryEngine {
               threads: {},
               passedReviews: [],
               lastSummary: "",
+              founderCheck: null,
               consult: null,
               originThreadId,
               nudged: false,
@@ -414,7 +423,8 @@ export class FactoryEngine {
           workspace === null
             ? { type: "new-worktree" }
             : { type: "reuse", environmentId: workspace },
-        title: `${item.key} · ${stage.label}`,
+        // bb names a workspace after its first thread, so that one is the ticket.
+        title: Object.keys(item.threads).length === 0 ? item.key : `${item.key} · ${stage.label}`,
         prompt,
         role,
         binding: { kind: "stage", itemId: item.id, stage: stageId },
@@ -457,8 +467,26 @@ export class FactoryEngine {
     if (index >= stages.length) {
       const done = this.store.saveItem({ ...item, status: "done", stageIndex: stages.length });
       this.effects.log(`${item.key} finished its pipeline.`);
+      // Its worktree goes with its threads: bb removes a worktree once every
+      // thread in it is archived.
+      for (const thread of Object.values(item.threads)) this.effects.archive(thread);
       await this.scheduleLocked(item.projectId);
       return done;
+    }
+    const next = config.stages[stages[index]!];
+    if (next?.founderGate === true && item.founderCheck !== null && !item.founderCheck.approved) {
+      // Everything before this stage is finished; it waits for the founder to
+      // try the branch. Approving runs `forward` again from the same place.
+      const held = this.store.saveItem({ ...item, status: "needs-founder", passedReviews: passed });
+      this.openEntry({
+        item: held,
+        threadId: item.threads[stages[item.stageIndex] ?? ""] ?? "",
+        kind: "check",
+        from: `Ready to try · ${item.key}`,
+        question: `${item.key} (${item.title}) is built and reviewed. Try it before it ships.`,
+        context: item.founderCheck.text,
+      });
+      return held;
     }
     return this.runStage({ ...item, stageIndex: index, passedReviews: passed }, config);
   }
@@ -471,7 +499,13 @@ export class FactoryEngine {
       const summary = input.summary.trim();
       this.closeEntriesFor(item.id);
 
+      const check = input.founderCheck?.trim();
+      if (check) item.founderCheck = { text: check, approved: false };
+
       if (input.outcome === "blocked") {
+        if (await this.triage(item, threadId, `The ${stage?.label ?? stageId} stage reports it is blocked.`, summary)) {
+          return "Recorded as blocked and sent to the chief of staff, who will either answer you or take it to the founder. The reply arrives in this thread. End your turn.";
+        }
         this.store.saveItem({ ...item, status: "needs-founder", lastSummary: summary });
         this.openEntry({
           item,
@@ -558,8 +592,45 @@ export class FactoryEngine {
       if (binding === null) {
         throw new FactoryError("This thread is not part of the factory.");
       }
-      const item = binding.itemId === null ? null : this.store.getItem(binding.itemId);
       const config = this.store.getConfig(binding.projectId);
+      // The chief of staff asks on behalf of a ticket's thread: the entry
+      // belongs to that thread, so the founder's answer goes straight to it.
+      if (binding.agentId === "chief-of-staff" && input.about) {
+        const target = this.resolveRecipient(binding.projectId, input.about.trim());
+        const about = this.currentStage(target.threadId);
+        if (about !== null) {
+          this.closeEntriesFor(about.item.id);
+          this.store.saveItem({ ...about.item, status: "needs-founder", consult: null });
+          const entry = this.openEntry({
+            item: about.item,
+            threadId: target.threadId,
+            kind: "question",
+            from: `${config.stages[about.stageId]?.label ?? about.stageId} · ${about.item.key}`,
+            question: input.question,
+            context: input.context ?? "",
+            options: input.options ?? [],
+            recommendation: input.recommendation ?? "",
+          });
+          this.effects.changed();
+          return entry;
+        }
+      }
+      const item = binding.itemId === null ? null : this.store.getItem(binding.itemId);
+      if (item !== null && binding.stage !== null && this.currentStage(threadId) !== null) {
+        const body = [
+          input.question,
+          input.context ? `Context: ${input.context}` : "",
+          (input.options ?? []).map((option, index) => `Option ${String.fromCharCode(65 + index)}: ${option}`).join("\n"),
+          input.recommendation ? `Its recommendation: ${input.recommendation}` : "",
+        ]
+          .filter((part) => part !== "")
+          .join("\n\n");
+        const label = config.stages[binding.stage]?.label ?? binding.stage;
+        if (await this.triage(item, threadId, `The ${label} stage wants a founder decision.`, body)) {
+          this.effects.changed();
+          return this.triagePlaceholder(item, threadId);
+        }
+      }
       const from =
         item !== null && binding.stage !== null
           ? `${config.stages[binding.stage]?.label ?? binding.stage} · ${item.key}`
@@ -588,11 +659,95 @@ export class FactoryEngine {
     });
   }
 
+  /**
+   * Hand something a ticket's thread wants from the founder to the chief of
+   * staff first. It settles what agents may settle and writes the founder one
+   * clear message for the rest. Returns false when there is no chief of staff.
+   */
+  private async triage(item: Item, threadId: string, headline: string, body: string): Promise<boolean> {
+    const config = this.store.getConfig(item.projectId);
+    if (config.agents["chief-of-staff"] === undefined) return false;
+    const stageId = currentStageId(this.store, item) ?? "";
+    let chief = this.store.getAgent(item.projectId, "chief-of-staff").threadId;
+    try {
+      chief ??= (await this.spawnAgent(item.projectId, "chief-of-staff", "")).threadId;
+    } catch (error) {
+      this.effects.log(`chief of staff could not start: ${messageOf(error)}`);
+      return false;
+    }
+    if (chief === null || chief === threadId) return false;
+    await this.effects.send(
+      chief,
+      `${headline}\nTicket: ${item.key} — ${item.title}\nThread: "${item.key}:${stageId}"\n\n${body.trim()}\n\nHandle this as your charter says: answer it yourself with factory_message (to: "${item.key}:${stageId}") if agents may decide it, or put one clear message to the founder with factory_ask_founder (about: "${item.key}:${stageId}").`,
+      threadId,
+    );
+    this.closeEntriesFor(item.id);
+    this.store.saveItem({ ...item, status: "triage", consult: { threadId: chief, nudged: false } });
+    return true;
+  }
+
+  /** What `ask` returns while a question is with the chief of staff. */
+  private triagePlaceholder(item: Item, threadId: string): InboxEntry {
+    return {
+      id: "",
+      projectId: item.projectId,
+      threadId,
+      itemId: item.id,
+      from: "",
+      kind: "question",
+      question: "",
+      context: "",
+      options: [],
+      recommendation: "",
+      status: "dismissed",
+      answer: "",
+      createdAt: Date.now(),
+      resolvedAt: Date.now(),
+    };
+  }
+
+  /** The founder tried the branch and it is good: let the gated stage start. */
+  approveCheck(entryId: string): Promise<Item> {
+    return this.exclusive(async () => {
+      const entry = this.requireOpenEntry(entryId);
+      const item = entry.itemId === null ? null : this.store.getItem(entry.itemId);
+      if (entry.kind !== "check" || item === null || item.founderCheck === null) {
+        throw new FactoryError("That inbox entry is not a check waiting for approval.");
+      }
+      this.store.saveInbox({ ...entry, status: "answered", answer: "Approved.", resolvedAt: Date.now() });
+      const result = await this.forward(
+        { ...item, founderCheck: { ...item.founderCheck, approved: true } },
+        false,
+      );
+      this.effects.changed();
+      return result;
+    });
+  }
+
   answer(entryId: string, answer: string): Promise<InboxEntry> {
     return this.exclusive(async () => {
       const entry = this.requireOpenEntry(entryId);
       const text = answer.trim();
       if (text === "") throw new FactoryError("An answer cannot be empty.");
+      if (entry.kind === "check") {
+        // Notes on a check send the ticket back to whoever built it.
+        const item = entry.itemId === null ? null : this.store.getItem(entry.itemId);
+        if (item === null) throw new FactoryError("That check's ticket no longer exists.");
+        const config = this.store.getConfig(item.projectId);
+        const stages = config.pipelines[item.pipeline] ?? [];
+        let author = item.stageIndex;
+        while (author > 0 && (config.stages[stages[author]!]?.review === true || item.threads[stages[author]!] === undefined)) author -= 1;
+        const authorThread = item.threads[stages[author] ?? ""];
+        if (authorThread === undefined) throw new FactoryError(`${item.key} has no build thread to send this to.`);
+        await this.effects.send(
+          authorThread,
+          `The founder tried ${item.key} and wants changes before it ships:\n\n${text}\n\nMake them, verify, then call factory_stage_done again with an updated founder_check.`,
+        );
+        this.store.saveItem({ ...item, status: "running", nudged: false, stageIndex: author });
+        const sent = this.store.saveInbox({ ...entry, status: "answered", answer: text, resolvedAt: Date.now() });
+        this.effects.changed();
+        return sent;
+      }
       await this.effects.send(
         entry.threadId,
         `Founder answer to "${entry.question}":\n\n${text}`,
@@ -704,8 +859,17 @@ export class FactoryEngine {
   onIdle(threadId: string, lastAssistantText: string | null): Promise<void> {
     return this.exclusive(async () => {
       const binding = this.store.getBinding(threadId);
-      const asked = binding?.itemId == null ? null : this.store.getItem(binding.itemId);
-      if (asked !== null && asked.status === "with-planner" && asked.consult?.threadId === threadId) {
+      const asked =
+        binding === null
+          ? null
+          : (this.store
+              .listItems(binding.projectId)
+              .find(
+                (item) =>
+                  (item.status === "with-planner" || item.status === "triage") &&
+                  item.consult?.threadId === threadId,
+              ) ?? null);
+      if (asked !== null && asked.consult !== null) {
         const stageId = currentStageId(this.store, asked) ?? "";
         if (this.store.listInbox({ status: "open", threadId }).length > 0) return;
         if (!asked.consult.nudged) {
@@ -720,8 +884,8 @@ export class FactoryEngine {
           item: asked,
           threadId,
           kind: "stalled",
-          from: `Planner · ${asked.key}`,
-          question: `${asked.key}'s planner stopped twice without answering the ${stageId} stage.`,
+          from: `${asked.status === "triage" ? "Chief of staff" : "Planner"} · ${asked.key}`,
+          question: `${asked.key}'s ${asked.status === "triage" ? "chief of staff" : "planner"} stopped twice without answering the ${stageId} stage.`,
           context: (lastAssistantText ?? "").slice(0, 2000),
         });
         this.effects.changed();
@@ -1032,7 +1196,7 @@ export class FactoryEngine {
       );
       // The planner answering is what puts a waiting stage back to work.
       const waiting = this.currentStage(target.threadId);
-      if (waiting !== null && waiting.item.status === "with-planner") {
+      if (waiting !== null && (waiting.item.status === "with-planner" || waiting.item.status === "triage")) {
         this.store.saveItem({ ...waiting.item, status: "running", consult: null, nudged: false });
         this.effects.changed();
       }
@@ -1198,6 +1362,7 @@ export function stageProtocol(item: Item, stageLabel: string, review: boolean): 
     review
       ? `- If the author must change something you cannot land yourself, call factory_stage_done with outcome "changes_requested" and the findings. They go to the author's thread.`
       : `- If a reviewer sends findings to this thread later, address them and call factory_stage_done again.`,
+    `- If this ticket changes anything a user sees, pass founder_check when you call factory_stage_done. It ships only after the founder has tried it, so write it for him: exactly what changed, screen by screen; the branch; how to run it; a dev account that shows the change (one that exists, or one you seeded for this, with how to sign in); and numbered steps with what he should see at each.`,
     `- If only the founder can decide something, call factory_ask_founder with the situation, the options, and your recommendation, then end your turn. The answer arrives here as a message.`,
     `- If your project's process says something goes back to the planner, call factory_ask_planner with the full handoff. For this ticket the planner is the agent that reviewed its plan; its answer arrives here as a message, and you may go back and forth as often as needed. Never send planner questions to the founder.`,
     `- If you cannot proceed for any other reason, call factory_stage_done with outcome "blocked" and say why.`,

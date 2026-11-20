@@ -25,6 +25,8 @@ export const stageSchema = z.object({
   label: z.string().min(1).max(60),
   role: z.string().min(1),
   prompt: z.string().min(1).max(8000),
+  /** This stage does not start until the founder approves a recorded check. */
+  founderGate: z.boolean().default(false),
   /** A review stage sends requested changes back to the stage before it. */
   review: z.boolean().default(false),
   /**
@@ -62,6 +64,7 @@ export const ITEM_STATUSES = [
   "running",
   "needs-founder",
   "with-planner",
+  "triage",
   "returned",
   "stalled",
   "failed",
@@ -89,6 +92,8 @@ export const itemSchema = z.object({
   /** Review stages already passed once; skipped when the author finishes fixes. */
   passedReviews: z.array(z.string()),
   lastSummary: z.string(),
+  /** What the founder must try before this ships, and whether he approved it. */
+  founderCheck: z.object({ text: z.string(), approved: z.boolean() }).nullable().default(null),
   /** The planner thread a stage is waiting on, and whether it was reminded. */
   consult: z.object({ threadId: z.string(), nudged: z.boolean() }).nullable().default(null),
   /** Thread that queued this ticket; review findings with no author stage go here. */
@@ -105,6 +110,7 @@ export const INBOX_KINDS = [
   "stalled",
   "failed",
   "blocked",
+  "check",
 ] as const;
 export type InboxKind = (typeof INBOX_KINDS)[number];
 

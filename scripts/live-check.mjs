@@ -150,9 +150,9 @@ async function main() {
 
     // --- standing agent
     bb(["factory", "agent", "start", "orchestrator", "--project", project]);
-    const orchestrator = await until(() => threads().find((t) => t.title === "Orchestrator"));
+    const orchestrator = await until(() => threads().find((t) => t.title === "Planner / strategist"));
     check("orchestrator starts as a pinned thread", orchestrator?.pinnedAt != null);
-    const mainEnv = await until(() => threads().find((t) => t.title === "Orchestrator")?.environmentId);
+    const mainEnv = await until(() => threads().find((t) => t.title === "Planner / strategist")?.environmentId);
     const environments = bb(["environment", "list", "--project", project]);
     check(
       "orchestrator runs in the main checkout, not a worktree",
@@ -191,13 +191,20 @@ async function main() {
     check("review receives the builder's handoff", lastMessage(review).includes("Built on its branch; tests pass."));
     check("reporting a stage clears its stall from the inbox", !status().inbox.some((e) => e.threadId === build));
 
-    // --- founder question and answer
+    // --- a stage's question goes to the chief of staff, who takes it to the founder
     bb(
       ["factory", "ask", "Should rest days count as missed?", "--context", "Today they count as rest.", "--option", "Count as rest", "--option", "Count as missed", "--recommend", "Count as missed."],
       as(review),
     );
+    const chief = await until(() => threads().find((t) => t.title === "Chief of staff"));
+    check("a stage's question starts the chief of staff and goes there first", Boolean(chief) && status().inbox.every((e) => e.kind !== "question"));
+    check("the ticket shows as with the chief of staff", ticket("LIVE-1").status === "triage");
+    bb(
+      ["factory", "ask", "Should a rest day count as missed?", "--about", "LIVE-1:code-review", "--context", "Today it counts as rest.", "--option", "Count as rest", "--option", "Count as missed", "--recommend", "Count as missed."],
+      as(chief.id),
+    );
     const question = status().inbox.find((e) => e.kind === "question");
-    check("a founder question lands in the inbox", question?.from === "Review code · LIVE-1" && question.options.length === 2);
+    check("the chief of staff's question lands in the inbox for that ticket", question?.from === "Review code · LIVE-1" && question.options.length === 2);
     check("the ticket shows as waiting on the founder", ticket("LIVE-1").status === "needs-founder");
     bb(["factory", "answer", question.id, "Count as missed."]);
     const answered = await until(() => (lastMessage(review).includes("Count as missed.") ? true : null));
@@ -208,7 +215,10 @@ async function main() {
     bb(["factory", "done", "--outcome", "changes_requested", "--summary", "Rename the helper."], as(review));
     const findings = await until(() => (lastMessage(build).includes("Rename the helper.") ? true : null));
     check("review findings go to the builder's existing thread", findings === true);
-    bb(["factory", "done", "--outcome", "complete", "--summary", "Helper renamed."], as(build));
+    bb(["factory", "done", "--outcome", "complete", "--summary", "Helper renamed.", "--founder-check", "Open the greeting screen as demo@example.com and see the new name."], as(build));
+    const gate = await until(() => status().inbox.find((e) => e.kind === "check"));
+    check("a visible change waits for the founder to try it before ship", Boolean(gate) && !ticket("LIVE-1").threads.ship);
+    bb(["factory", "approve", gate.id]);
     const ship = await until(() => ticket("LIVE-1").threads.ship);
     check("after fixes the ticket goes to ship without a second review", Boolean(ship));
 
@@ -220,6 +230,8 @@ async function main() {
     // --- finishing frees the lane
     bb(["factory", "done", "--outcome", "complete", "--summary", "Merged."], as(ship));
     check("the ticket finishes after its last stage", ticket("LIVE-1").status === "done");
+    const tidied = await until(() => (JSON.parse(bb(["thread", "list", "--project", project, "--json"])).some((t) => t.id === build) ? null : true));
+    check("a finished ticket's threads are archived", tidied === true);
     const next = await until(() => (ticket("LIVE-2").status !== "queued" ? true : null));
     check("the next ticket in the lane starts", next === true);
   } finally {

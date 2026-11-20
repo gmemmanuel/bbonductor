@@ -7,7 +7,17 @@ import type { Config } from "./model.js";
 export const DEFAULT_CONFIG: Config = {
   roles: {
     orchestrator: {
-      label: "Orchestrator / planner",
+      label: "Planner / strategist",
+      providerId: "",
+      model: "",
+      reasoningLevel: "",
+      permissionMode: "",
+      fallbackProviderId: "",
+      fallbackModel: "",
+      fallbackReasoningLevel: "",
+    },
+    "chief-of-staff": {
+      label: "Chief of staff",
       providerId: "",
       model: "",
       reasoningLevel: "",
@@ -102,6 +112,7 @@ export const DEFAULT_CONFIG: Config = {
       label: "Plan",
       role: "orchestrator",
       review: false,
+      founderGate: false,
       tierRoles: {},
       prompt:
         "Use the `create-plan` skill to plan {key}: {title}.\n\n{brief}",
@@ -110,6 +121,7 @@ export const DEFAULT_CONFIG: Config = {
       label: "Review plan",
       role: "plan-review",
       review: true,
+      founderGate: false,
       tierRoles: {},
       prompt:
         "Use the `review-plan` skill to independently review the plan for {key}: {title}.\n\n{previous}",
@@ -118,6 +130,7 @@ export const DEFAULT_CONFIG: Config = {
       label: "Build",
       role: "build",
       review: false,
+      founderGate: false,
       tierRoles: { "2": "build-tier-2", "3": "build-tier-3" },
       prompt:
         "Use the `execute-plan` skill to build {key}: {title}.\n\n{brief}\n\n{previous}",
@@ -126,6 +139,7 @@ export const DEFAULT_CONFIG: Config = {
       label: "Review code",
       role: "code-review",
       review: true,
+      founderGate: false,
       tierRoles: {},
       prompt:
         "Use the `review-code` skill to independently review the complete branch for {key}: {title}.\n\n{previous}",
@@ -134,6 +148,7 @@ export const DEFAULT_CONFIG: Config = {
       label: "Ship",
       role: "ship",
       review: false,
+      founderGate: true,
       tierRoles: {},
       prompt:
         "Use the `ship` skill to close out and ship {key}: {title}.\n\n{previous}",
@@ -142,6 +157,7 @@ export const DEFAULT_CONFIG: Config = {
       label: "Fix",
       role: "build",
       review: false,
+      founderGate: false,
       tierRoles: {},
       prompt:
         "{key}: {title} is a Small bug. Fix it on the fast path your project instructions describe, then ship it.\n\n{brief}",
@@ -157,10 +173,16 @@ export const DEFAULT_CONFIG: Config = {
   maxActiveItems: 8,
   agents: {
     orchestrator: {
-      label: "Orchestrator",
+      label: "Planner / strategist",
       role: "orchestrator",
       skill: "factory-orchestrator",
       memoryPath: "docs/agents/orchestrator/MEMORY.md",
+    },
+    "chief-of-staff": {
+      label: "Chief of staff",
+      role: "chief-of-staff",
+      skill: "factory-chief-of-staff",
+      memoryPath: "docs/agents/chief-of-staff/MEMORY.md",
     },
     watch: {
       label: "Watch",

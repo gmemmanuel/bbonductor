@@ -11,6 +11,26 @@ What Gideon has decided about the factory, newest first. Check here before re-op
 
 ---
 
+## 20 November 2026 (after the first night)
+
+**A chief of staff stands between ticket threads and the founder.** (Founder)
+"All the threads can message directly… takes the incoming from all the branches and then writes me messages with the clear thing I need to actually do." It settles what agents may settle and rewrites the rest in plain words. Split from the orchestrator, which becomes the **Planner / strategist** on the strongest model; the chief of staff runs on a lighter one.
+
+**QA budgets are set by agents and raised by agents.** (Founder)
+"I don't need to get in the weeds on the budgets. Really it should be product choice." The aim was only that weaker builders do not have unlimited budgets.
+
+**Nothing a user can see ships until the founder has tried it.** (Founder)
+"They should have sent me a message saying, 'This branch is ready to run. Check it,' and then ship." Review and everything else finish first; only ship waits. The message says exactly what changed and comes with a dev account, existing or seeded, to test it in.
+
+**A lane still stops while its ticket is blocked or waiting for the founder.** (Agent, pending founder)
+Founder asked for a view. Lanes group work that collides, so starting the next ticket would build on a base that is about to change.
+
+**A finished ticket's threads are archived**, which removes its worktree. A new ticket never reuses a workspace. (Founder)
+
+**A workspace is named by its ticket number alone.** (Founder)
+
+**Model and provider are one dropdown per role.** (Founder)
+
 ## 20 November 2026
 
 **The planner of a ticket is whoever reviewed its plan.** (Founder)

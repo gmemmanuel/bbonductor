@@ -244,7 +244,41 @@ export class FactoryStore {
  * without touching anything the founder set: the tiered builder roles start as
  * copies of the builder he already chose.
  */
-function withNewDefaults(config: Config): Config {
+function withNewDefaults(saved: Config): Config {
+  let config = saved;
+  // The chief of staff, and the planner's new name.
+  if (config.agents["chief-of-staff"] === undefined && config.roles["chief-of-staff"] === undefined) {
+    const planner = config.roles.orchestrator;
+    const agent = config.agents.orchestrator;
+    config = {
+      ...config,
+      roles: {
+        ...config.roles,
+        ...(planner !== undefined && planner.label === "Orchestrator / planner"
+          ? { orchestrator: { ...planner, label: "Planner / strategist" } }
+          : {}),
+        "chief-of-staff": structuredClone(DEFAULT_CONFIG.roles["chief-of-staff"]!),
+      },
+      agents: {
+        ...config.agents,
+        ...(agent !== undefined && agent.label === "Orchestrator"
+          ? { orchestrator: { ...agent, label: "Planner / strategist" } }
+          : {}),
+        "chief-of-staff": {
+          ...structuredClone(DEFAULT_CONFIG.agents["chief-of-staff"]!),
+          // Keep its memory beside the other agents' wherever the founder put them.
+          memoryPath:
+            agent === undefined
+              ? DEFAULT_CONFIG.agents["chief-of-staff"]!.memoryPath
+              : agent.memoryPath.replace(/[^/]*$/u, "Chief of staff memory.md"),
+        },
+      },
+      stages: {
+        ...config.stages,
+        ...(config.stages.ship !== undefined ? { ship: { ...config.stages.ship, founderGate: true } } : {}),
+      },
+    };
+  }
   const build = config.stages.build;
   if (build === undefined || Object.keys(build.tierRoles).length > 0) return config;
   if (config.roles["build-tier-2"] !== undefined || config.roles["build-tier-3"] !== undefined) return config;

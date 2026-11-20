@@ -13,11 +13,12 @@ export const CLI_COMMANDS = [
   { name: "move", summary: "Move a ticket to a lane and slot", usage: "bb factory move <key> --lane <name> [--position <n>]" },
   { name: "advance", summary: "Send a ticket on to its next stage", usage: "bb factory advance <key> [--summary <text>]" },
   { name: "cancel", summary: "Take a ticket out of the factory", usage: "bb factory cancel <key>" },
-  { name: "done", summary: "Report this thread's stage (same as factory_stage_done)", usage: "bb factory done --outcome complete|changes_requested|blocked --summary <text> [--rereview]" },
-  { name: "ask", summary: "Ask the founder (same as factory_ask_founder)", usage: "bb factory ask <question…> [--context <text>] [--option <text>]… [--recommend <text>]" },
+  { name: "done", summary: "Report this thread's stage (same as factory_stage_done)", usage: "bb factory done --outcome complete|changes_requested|blocked --summary <text> [--founder-check <text>] [--rereview]" },
+  { name: "ask", summary: "Ask the founder (same as factory_ask_founder)", usage: "bb factory ask <question…> [--context <text>] [--option <text>]… [--recommend <text>] [--about KEY:stage]" },
   { name: "ask-planner", summary: "Send something back to this ticket's planner (same as factory_ask_planner)", usage: "bb factory ask-planner <handoff…>" },
   { name: "message", summary: "Message an agent or a ticket's thread", usage: "bb factory message <agent|KEY|KEY:stage> <text…>" },
   { name: "inbox", summary: "List open founder decisions", usage: "bb factory inbox [--json]" },
+  { name: "approve", summary: "Approve a ticket the founder has tried, so it ships", usage: "bb factory approve <entry-id>" },
   { name: "answer", summary: "Answer an inbox entry", usage: "bb factory answer <entry-id> <text…>" },
   { name: "agent", summary: "Start or rotate a standing agent", usage: "bb factory agent start|rotate <agent-id> [--project <id>]" },
   { name: "prompt", summary: "Send a standing agent a prompt, starting it if needed (for automations)", usage: "bb factory prompt <agent-id> <text…> [--project <id>]" },
@@ -199,7 +200,7 @@ export async function runCli(
         const summary = flag("summary");
         if (outcome !== "complete" && outcome !== "changes_requested" && outcome !== "blocked") break;
         if (summary === undefined) break;
-        const text = await engine.stageDone(thread(), { outcome, summary, rereview: flags.has("rereview") });
+        const text = await engine.stageDone(thread(), { outcome, summary, rereview: flags.has("rereview"), founderCheck: flag("founder-check") });
         return ok({ message: text }, text);
       }
       case "ask": {
@@ -209,8 +210,9 @@ export async function runCli(
           context: flag("context"),
           options: flags.get("option") ?? [],
           recommendation: flag("recommend"),
+          about: flag("about"),
         });
-        return ok(entry, "Asked. The answer will arrive in this thread as a message. End your turn.");
+        return ok(entry, entry.id === "" ? "Sent to the chief of staff. The reply will arrive in this thread. End your turn." : "Asked. The answer will arrive in the thread it concerns. End your turn.");
       }
       case "ask-planner": {
         if (rest.length === 0) break;
@@ -231,6 +233,11 @@ export async function runCli(
             ? "Inbox is empty."
             : entries.map((e) => `${e.id}  [${e.kind}] ${e.from}: ${e.question}`).join("\n"),
         );
+      }
+      case "approve": {
+        if (rest[0] === undefined) break;
+        const item = await engine.approveCheck(rest[0]);
+        return ok(item, `${item.key} approved (${item.status}).`);
       }
       case "answer": {
         const [id, ...text] = rest;

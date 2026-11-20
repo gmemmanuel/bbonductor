@@ -25,6 +25,15 @@ In rough order.
 
 ## Log
 
+### 20 November 2026 (second session): what the first night showed
+
+- **Overnight:** lane 4 shipped three tickets end to end on real agents (plan review, build, code review, ship) and stopped on the fourth with a "blocked" entry the founder could not act on. All three were visible changes and shipped without him trying them.
+- **Chief of staff** standing agent: blocked reports and founder questions from ticket threads go there first; it answers or asks the founder with `about`. The orchestrator is renamed Planner / strategist.
+- **Check before ship:** `founder_check` on `factory_stage_done`; the ship stage is gated; the inbox entry has Approve and ship, or notes that go back to the builder.
+- **Finished tickets archive their threads.** First thread of a ticket is titled with the key alone. One model dropdown per role.
+- Routed the fourth ticket's budget question to its plan reviewer with the loop from the previous session.
+- **Checked:** 50 behaviour tests, 28 live checks.
+
 ### 20 November 2026: builder and plan reviewer talk directly; the page stops being a control panel
 
 - **What the first real ticket showed.** JUS-1011 went through plan review and into build on real agents, then the builder stopped with a planner handoff that landed in the founder's inbox. Routed it by hand to the plan-review thread.
