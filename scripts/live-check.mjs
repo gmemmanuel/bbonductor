@@ -204,7 +204,7 @@ async function main() {
       as(chief.id),
     );
     const question = status().inbox.find((e) => e.kind === "question");
-    check("the chief of staff's question lands in the inbox for that ticket", question?.from === "Review code · LIVE-1" && question.options.length === 2);
+    check("the chief of staff's question lands in the inbox for that ticket", question?.from === "Code review · LIVE-1" && question.options.length === 2);
     check("the ticket shows as waiting on the founder", ticket("LIVE-1").status === "needs-founder");
     bb(["factory", "answer", question.id, "Count as missed."]);
     const answered = await until(() => (lastMessage(review).includes("Count as missed.") ? true : null));

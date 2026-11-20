@@ -279,6 +279,23 @@ function withNewDefaults(saved: Config): Config {
       },
     };
   }
+  // Stage names the founder chose on 20 November, where the old default is still in place.
+  const renamed: Record<string, [string, string]> = {
+    "plan-review": ["Review plan", "Plan review"],
+    build: ["Build", "Execution"],
+    "code-review": ["Review code", "Code review"],
+  };
+  if (Object.entries(renamed).some(([id, [old]]) => config.stages[id]?.label === old)) {
+    config = {
+      ...config,
+      stages: Object.fromEntries(
+        Object.entries(config.stages).map(([id, stage]) => [
+          id,
+          renamed[id] !== undefined && stage.label === renamed[id][0] ? { ...stage, label: renamed[id][1] } : stage,
+        ]),
+      ),
+    };
+  }
   const build = config.stages.build;
   if (build === undefined || Object.keys(build.tierRoles).length > 0) return config;
   if (config.roles["build-tier-2"] !== undefined || config.roles["build-tier-3"] !== undefined) return config;

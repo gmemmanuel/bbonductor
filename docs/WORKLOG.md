@@ -25,6 +25,12 @@ In rough order.
 
 ## Log
 
+### 20 November 2026 (fifth session): quieter page and messages
+
+- Fixed-shape `founder_check`; one-line endings for stage threads; stages renamed (Plan review, Execution, Code review; Founder testing while held).
+- Page: Markdown inbox with the ticket number first, Done column per lane, drag to reorder plus small arrows, "Waiting for you" beside Open thread, a pulse on tickets whose thread is in a turn, Memory button, no helper text or role sub-text.
+- **Checked:** 54 behaviour tests, 29 live checks, screenshot. **Not checked:** drag and drop and the Memory button in a real browser session (headless screenshot only).
+
 ### 20 November 2026 (fourth session): four lanes in bb
 
 - Lanes 3, 5 and 6 of the Justus board tagged `bb`; lanes 5 and 6 started plan review and reached build. Placed three new tickets into Conductor lanes by file overlap so the refresh could run.

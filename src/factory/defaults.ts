@@ -118,7 +118,7 @@ export const DEFAULT_CONFIG: Config = {
         "Use the `create-plan` skill to plan {key}: {title}.\n\n{brief}",
     },
     "plan-review": {
-      label: "Review plan",
+      label: "Plan review",
       role: "plan-review",
       review: true,
       founderGate: false,
@@ -127,7 +127,7 @@ export const DEFAULT_CONFIG: Config = {
         "Use the `review-plan` skill to independently review the plan for {key}: {title}.\n\n{previous}",
     },
     build: {
-      label: "Build",
+      label: "Execution",
       role: "build",
       review: false,
       founderGate: false,
@@ -136,7 +136,7 @@ export const DEFAULT_CONFIG: Config = {
         "Use the `execute-plan` skill to build {key}: {title}.\n\n{brief}\n\n{previous}",
     },
     "code-review": {
-      label: "Review code",
+      label: "Code review",
       role: "code-review",
       review: true,
       founderGate: false,

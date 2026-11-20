@@ -154,6 +154,26 @@ describe("swimlanes", () => {
     expect(items.filter((item) => item.status === "queued")).toHaveLength(10);
   });
 
+  it("lets the founder drag a waiting ticket to a new place in its lane", async () => {
+    for (const key of ["JUS-1", "JUS-2", "JUS-3", "JUS-4"]) await t.enqueue(key, "Coach", "small-bug");
+    const order = async () => (await t.state()).items.filter((item) => item.lane === "Coach").map((item) => item.key);
+    const id = async (key: string) => (await t.item(key)).id;
+    await t.rpc("reorderBefore", { itemId: await id("JUS-4"), beforeId: await id("JUS-2") });
+    expect(await order()).toEqual(["JUS-1", "JUS-4", "JUS-2", "JUS-3"]);
+    await t.rpc("reorderBefore", { itemId: await id("JUS-4"), beforeId: null });
+    expect(await order()).toEqual(["JUS-1", "JUS-2", "JUS-3", "JUS-4"]);
+    await expect(t.rpc("reorderBefore", { itemId: await id("JUS-1"), beforeId: null })).rejects.toThrow(/cannot be reordered/);
+  });
+
+  it("marks a ticket as working while its thread is in a turn", async () => {
+    await t.enqueue("JUS-1", "Coach", "reviewed");
+    expect((await t.item("JUS-1")).working).toBe(true);
+    await t.emit("thread.idle", "th_1", { lastAssistantText: "Paused." });
+    expect((await t.item("JUS-1")).working).toBe(false);
+    await t.emit("thread.active", "th_1");
+    expect((await t.item("JUS-1")).working).toBe(true);
+  });
+
   it("lets the founder reorder the tickets waiting in a lane, and never the one in flight", async () => {
     for (const key of ["JUS-1", "JUS-2", "JUS-3", "JUS-4"]) await t.enqueue(key, "Coach", "small-bug");
     const order = async () =>
@@ -208,7 +228,7 @@ describe("pipeline handoffs", () => {
     await t.tool("factory_stage_done", "th_1", { outcome: "complete", summary: "Plan is at Plans/JUS-1.md." });
 
     const review = t.spawned[1]!;
-    expect(review.title).toBe("JUS-1 · Review plan");
+    expect(review.title).toBe("JUS-1 · Plan review");
     expect(review.environment).toEqual({ type: "reuse", environmentId: "env_th_1" });
     expect(review).toMatchObject({ providerId: "claude-code", model: "claude-opus-5-5", reasoningLevel: "high" });
     expect(review.prompt).toContain("Use the `review-plan` skill");
@@ -216,7 +236,7 @@ describe("pipeline handoffs", () => {
     expect(review.prompt).toContain("factory_stage_done");
 
     await t.tool("factory_stage_done", "th_2", { outcome: "complete", summary: "Plan reviewed; two corrections landed." });
-    expect(t.spawned[2]).toMatchObject({ title: "JUS-1 · Build", providerId: "codex", model: "gpt-terra" });
+    expect(t.spawned[2]).toMatchObject({ title: "JUS-1 · Execution", providerId: "codex", model: "gpt-terra" });
     // Unset role fields are left to the project default rather than sent empty.
     expect(t.spawned[0]).not.toHaveProperty("providerId");
   });
@@ -253,7 +273,7 @@ describe("pipeline handoffs", () => {
     await t.tool("factory_stage_done", "th_2", { outcome: "changes_requested", summary: "Change X." });
     await t.tool("factory_stage_done", "th_1", { outcome: "complete", summary: "Changed scope.", rereview: true });
 
-    expect(t.spawned.at(-1)).toMatchObject({ id: "th_3", title: "JUS-1 · Review code" });
+    expect(t.spawned.at(-1)).toMatchObject({ id: "th_3", title: "JUS-1 · Code review" });
   });
 
   it("returns findings to the thread that queued the ticket when the pipeline has no author stage", async () => {
@@ -267,7 +287,7 @@ describe("pipeline handoffs", () => {
 
     const cli = await t.harness.behavior.runCli(["advance", "JUS-1"], { projectId: PROJECT, threadId: orchestrator.threadId });
     expect(cli.exitCode).toBe(0);
-    expect(t.spawned.at(-1)!.title).toBe("JUS-1 · Build");
+    expect(t.spawned.at(-1)!.title).toBe("JUS-1 · Execution");
   });
 
   it("rejects a report from a thread whose stage is no longer current", async () => {
@@ -289,7 +309,7 @@ describe("builder and plan reviewer go back and forth without the founder", () =
   const start = async () => {
     await t.enqueue("JUS-1", "Coach", "planned");
     await t.tool("factory_stage_done", "th_1", { outcome: "complete", summary: "Plan reviewed." });
-    expect(t.spawned.at(-1)).toMatchObject({ id: "th_2", title: "JUS-1 · Build" });
+    expect(t.spawned.at(-1)).toMatchObject({ id: "th_2", title: "JUS-1 · Execution" });
   };
 
   it("sends the builder's question to the thread that reviewed the plan, and resumes on its reply", async () => {
@@ -314,7 +334,7 @@ describe("builder and plan reviewer go back and forth without the founder", () =
     await t.tool("factory_ask_planner", "th_2", { question: "One more: which fixture?" });
     await t.tool("factory_message", "th_1", { to: "JUS-1", message: "The hand-log one." });
     await t.tool("factory_stage_done", "th_2", { outcome: "complete", summary: "Built." });
-    expect(t.spawned.at(-1)!.title).toBe("JUS-1 · Review code");
+    expect(t.spawned.at(-1)!.title).toBe("JUS-1 · Code review");
     expect((await t.state()).inbox).toEqual([]);
   });
 
@@ -382,7 +402,7 @@ describe("founder inbox", () => {
     });
     const before = await t.state();
     expect(before.inbox).toHaveLength(1);
-    expect(before.inbox[0]).toMatchObject({ kind: "question", from: "Build · JUS-1", threadId: "th_1", question: "Should a skipped run count as a rest day?" });
+    expect(before.inbox[0]).toMatchObject({ kind: "question", from: "Execution · JUS-1", threadId: "th_1", question: "Should a skipped run count as a rest day?" });
     expect((await t.item("JUS-1")).status).toBe("needs-founder");
 
     await t.rpc("answer", { entryId: before.inbox[0]!.id, answer: "Count it as missed." });
@@ -558,7 +578,7 @@ describe("standing agents and messaging", () => {
     await t.enqueue("JUS-1", "Coach", "reviewed");
     await t.tool("factory_message", "th_2", { to: "orchestrator", message: "Plan and code disagree on units." });
     expect(t.sent.at(-1)).toMatchObject({ threadId: orchestrator.threadId, senderThreadId: "th_2" });
-    expect(t.sent.at(-1)!.text).toContain("Message from Build for JUS-1");
+    expect(t.sent.at(-1)!.text).toContain("Message from Execution for JUS-1");
 
     await t.tool("factory_message", orchestrator.threadId, { to: "JUS-1", message: "Use miles." });
     expect(t.sent.at(-1)).toMatchObject({ threadId: "th_2" });
@@ -583,7 +603,21 @@ describe("standing agents and messaging", () => {
 });
 
 describe("the founder tries a visible change before it ships", () => {
-  const CHECK = "What changed: the set row has a one-tap check. Branch gideon/jus-1. Run npm run dev. Sign in as demo+strength@example.com. 1. Open today's strength session...";
+  const CHECK = {
+    before: "Checking off a set took two taps.",
+    why: "Athletes mid-lift want one tap.",
+    now: "One tap checks a set off.",
+    account: "demo+strength@example.com / lift-1234",
+    steps: ["Open today's strength session.", "Tap the first set: it shows a check."],
+  };
+  const RENDERED = [
+    "**Before:** Checking off a set took two taps.",
+    "**Why:** Athletes mid-lift want one tap.",
+    "**Now:** One tap checks a set off.",
+    "**Needs your review**",
+    "Test account: demo+strength@example.com / lift-1234",
+    "**Steps to test**\n- Open today's strength session.\n- Tap the first set: it shows a check.",
+  ].join("\n\n");
   const toGate = async () => {
     await t.enqueue("JUS-1", "Coach", "reviewed");
     await t.tool("factory_stage_done", "th_1", { outcome: "complete", summary: "Built." });
@@ -594,7 +628,7 @@ describe("the founder tries a visible change before it ships", () => {
     await toGate();
     expect(t.spawned).toHaveLength(2);
     const { inbox } = await t.state();
-    expect(inbox[0]).toMatchObject({ kind: "check", from: "Ready to try · JUS-1", context: CHECK });
+    expect(inbox[0]).toMatchObject({ kind: "check", from: "Founder testing · JUS-1", context: RENDERED });
     expect((await t.item("JUS-1")).status).toBe("needs-founder");
 
     await t.rpc("approve", { entryId: inbox[0]!.id });
@@ -610,10 +644,11 @@ describe("the founder tries a visible change before it ships", () => {
     expect(t.sent.at(-1)!.text).toContain("The check mark is too small.");
     expect((await t.item("JUS-1")).status).toBe("running");
 
-    await t.tool("factory_stage_done", "th_1", { outcome: "complete", summary: "Bigger check mark.", founder_check: `${CHECK} Now 24pt.` });
+    await t.tool("factory_stage_done", "th_1", { outcome: "complete", summary: "Bigger check mark.", founder_check: { ...CHECK, now: "One tap checks a set off, with a 24pt mark." } });
     // No second code review, and still no ship until he has tried it again.
     expect(t.spawned).toHaveLength(2);
-    expect((await t.state()).inbox[0]).toMatchObject({ kind: "check", context: `${CHECK} Now 24pt.` });
+    expect((await t.state()).inbox[0]).toMatchObject({ kind: "check" });
+    expect((await t.state()).inbox[0]!.context).toContain("with a 24pt mark.");
   });
 
   it("ships straight through when no stage recorded a check", async () => {
@@ -770,7 +805,7 @@ describe("falling back when a model's limit runs out", () => {
     expect(t.updated).toEqual([]);
     expect(t.retried).toEqual([]);
     const replacement = t.spawned.at(-1)!;
-    expect(replacement).toMatchObject({ id: "th_2", title: "JUS-1 · Build", providerId: "codex", model: "gpt-sol" });
+    expect(replacement).toMatchObject({ id: "th_2", title: "JUS-1 · Execution", providerId: "codex", model: "gpt-sol" });
     expect(replacement).not.toHaveProperty("reasoningLevel");
     expect(replacement.environment).toEqual({ type: "reuse", environmentId: "env_th_1" });
     expect(replacement.prompt).toContain("bb thread log th_1");
@@ -780,7 +815,7 @@ describe("falling back when a model's limit runs out", () => {
 
     // The new thread reports for the stage; the old one no longer can.
     await t.tool("factory_stage_done", "th_2", { outcome: "complete", summary: "Built." });
-    expect(t.spawned.at(-1)!.title).toBe("JUS-1 · Review code");
+    expect(t.spawned.at(-1)!.title).toBe("JUS-1 · Code review");
     // A limit on the fallback as well goes to the founder, not back and forth.
     await t.enqueue("JUS-2", "Plan", "reviewed");
     expect(t.spawned.at(-1)).toMatchObject({ title: "JUS-2", providerId: "codex" });
@@ -859,7 +894,7 @@ describe("configuration and CLI", () => {
     expect(queued.exitCode).toBe(0);
 
     const status = await t.harness.behavior.runCli(["status"], { projectId: PROJECT });
-    expect(status.stdout).toContain("JUS-1  running  Build  — Rest days");
+    expect(status.stdout).toContain("JUS-1  running  Execution  — Rest days");
     expect(status.stdout).toContain("JUS-2  queued");
     expect(status.stdout).toContain("JUS-3  running  Fix");
   });

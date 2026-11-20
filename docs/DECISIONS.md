@@ -11,6 +11,18 @@ What Gideon has decided about the factory, newest first. Check here before re-op
 
 ---
 
+## 20 November 2026 (page and message feedback)
+
+**Threads in the factory end with one line, not a founder summary.** (Founder)
+"Plan reviewed, made 3 changes, sent to a tier 2 builder": lightweight and factory-oriented. He never reads the handoff; it is written for the next agent.
+
+**A "try before it ships" message has one fixed shape.** (Founder)
+Before, why, now; "Needs your review"; the test account and password on their own line; bullet steps to test. No list of what the agent verified or fixed, and no setup narration. Built as fixed fields on the tool rather than routed through the chief of staff, to avoid spending tokens on reformatting (Agent's choice on his open question).
+
+**Stage names:** Plan, Plan review, Execution, Code review, Ship, and Founder testing while a ticket waits for him. (Founder)
+
+**Page:** real section headers with no helper text; Done is a column so its lane is visible; "Waiting for you" sits beside Open thread in red; waiting tickets reorder by drag, with small arrows as a fallback; agents show a Memory button instead of a path; roles show no sub-text; a ticket being worked on right now shows a moving mark; the inbox renders Markdown and leads with the ticket number. (Founder)
+
 ## 20 November 2026 (later)
 
 **Agents may merge this repo's pull requests and update the founder's bb without asking.** (Founder)

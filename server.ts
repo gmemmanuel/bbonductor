@@ -35,6 +35,8 @@ const stateSchema = z.object({
   items: z.array(itemSchema),
   inbox: z.array(inboxSchema),
   agents: z.array(agentStateSchema),
+  /** Where each standing agent's memory file is, for the page's open button. */
+  memoryFiles: z.array(z.object({ agentId: z.string(), hostId: z.string(), path: z.string() })),
 });
 export type FactoryState = z.infer<typeof stateSchema>;
 
@@ -77,6 +79,7 @@ export const rpcContract = defineRpcContract({
   },
   advance: { input: itemRef, output: itemSchema },
   reorder: { input: itemRef.extend({ direction: z.enum(["up", "down"]) }), output: itemSchema },
+  reorderBefore: { input: itemRef.extend({ beforeId: z.string().nullable() }), output: itemSchema },
   cancel: { input: itemRef, output: itemSchema },
   answer: { input: entryRef.extend({ answer: z.string().trim().min(1).max(8000) }), output: inboxSchema },
   dismiss: { input: entryRef, output: inboxSchema },
@@ -99,6 +102,22 @@ export default async function plugin(bb: BbPluginApi) {
     const [first] = await bb.sdk.hosts.list();
     if (first === undefined) throw new Error("bb has no machine to run threads on.");
     return first.id;
+  }
+
+  async function memoryFiles(projectId: string, config: z.infer<typeof configSchema>) {
+    try {
+      const hostId = await localHostId();
+      const project = (await bb.sdk.projects.list()).find((candidate) => candidate.id === projectId) as
+        | { sources?: { path?: string }[] }
+        | undefined;
+      const root = project?.sources?.find((source) => typeof source.path === "string")?.path ?? "";
+      return Object.entries(config.agents).flatMap(([agentId, agent]) => {
+        const path = agent.memoryPath.startsWith("/") ? agent.memoryPath : root === "" ? "" : `${root}/${agent.memoryPath}`;
+        return path === "" ? [] : [{ agentId, hostId, path }];
+      });
+    } catch {
+      return [];
+    }
   }
 
   const effects: Effects = {
@@ -199,6 +218,7 @@ export default async function plugin(bb: BbPluginApi) {
     guard("idle", async () => {
       await engine.reconcileInteractions();
       await engine.onAgentIdle(thread.id);
+      await engine.markResting(thread.id);
       // A thread that ended its turn to wait on its own background command or
       // agent (a long test run, say) has not stopped: bb wakes it when that
       // finishes. Reminding it, then calling it stalled, is noise.
@@ -270,10 +290,15 @@ export default async function plugin(bb: BbPluginApi) {
         .max(8000)
         .describe("Handoff the next reader can act on without this thread: what was done, where it is, what is left."),
       founder_check: z
-        .string()
-        .max(6000)
+        .object({
+          before: z.string().min(1).max(600).describe("What the user saw before this change, in plain words."),
+          why: z.string().min(1).max(600).describe("Why it was changed."),
+          now: z.string().min(1).max(600).describe("What the user sees now."),
+          account: z.string().min(1).max(200).describe("Test account and password, such as 'demo@example.com / hunter2'. One that exists or one you seeded."),
+          steps: z.array(z.string().min(1).max(300)).min(1).max(12).describe("Short steps: what to do and what he should see. No setup notes."),
+        })
         .optional()
-        .describe("Required when the ticket changes anything a user sees. Written for the founder: exactly what changed, the branch, how to run it, a dev account that shows it (existing or seeded, with how to sign in), and numbered steps with what he should see. It ships only after he approves."),
+        .describe("Required when the ticket changes anything a user sees. It ships only after the founder has tried it."),
       rereview: z
         .boolean()
         .optional()
@@ -438,7 +463,7 @@ export default async function plugin(bb: BbPluginApi) {
           ? projectId
           : (projects[0]?.id ?? null);
       if (selected === null) {
-        return { projects, projectId: null, config: DEFAULT_CONFIG, items: [], inbox: [], agents: [] };
+        return { projects, projectId: null, config: DEFAULT_CONFIG, items: [], inbox: [], agents: [], memoryFiles: [] };
       }
       const config = store.getConfig(selected);
       return {
@@ -449,6 +474,7 @@ export default async function plugin(bb: BbPluginApi) {
         // The inbox is the founder's single queue, so it spans every project.
         inbox: store.listInbox({ status: "open" }),
         agents: Object.keys(config.agents).map((agentId) => store.getAgent(selected, agentId)),
+        memoryFiles: await memoryFiles(selected, config),
       };
     },
     async catalog({ projectId }) {
@@ -502,6 +528,7 @@ export default async function plugin(bb: BbPluginApi) {
     move: ({ itemId, lane, position }) => engine.move(itemId, lane, position),
     advance: ({ itemId }) => engine.advance(itemId),
     reorder: ({ itemId, direction }) => engine.reorder(itemId, direction),
+    reorderBefore: ({ itemId, beforeId }) => engine.reorderBefore(itemId, beforeId),
     cancel: ({ itemId }) => engine.cancel(itemId),
     answer: ({ entryId, answer }) => engine.answer(entryId, answer),
     dismiss: ({ entryId }) => engine.dismiss(entryId),
