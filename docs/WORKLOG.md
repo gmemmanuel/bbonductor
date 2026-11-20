@@ -25,6 +25,14 @@ In rough order.
 
 ## Log
 
+### 20 November 2026 (fourth session): four lanes in bb
+
+- Lanes 3, 5 and 6 of the Justus board tagged `bb`; lanes 5 and 6 started plan review and reached build. Placed three new tickets into Conductor lanes by file overlap so the refresh could run.
+- All role fallbacks cleared at the founder's request (he resets limits by hand for now).
+- The three tickets shipped overnight each sent the founder test steps on request.
+- A code review waiting on local CI was flagged stalled; the idle handler now ignores threads with background work running.
+- The Justus "Later tickets show in bb" change merged on the third try: two waits died on network timeouts to GitHub.
+
 ### 20 November 2026 (third session): Done lane, Later, more lanes in bb
 
 - The founder authorised merging this repo's pull requests and updating his bb without asking.
