@@ -315,7 +315,7 @@ export class FactoryEngine {
 
   // ----------------------------------------------------------------- stages
 
-  private async runStage(item: Item, config: Config): Promise<Item> {
+  private async runStage(item: Item, config: Config, handover = ""): Promise<Item> {
     const stageId = config.pipelines[item.pipeline]?.[item.stageIndex];
     const stage = stageId === undefined ? undefined : config.stages[stageId];
     const roleId =
@@ -326,6 +326,7 @@ export class FactoryEngine {
       return this.fail(item, `Stage ${item.stageIndex} of pipeline "${item.pipeline}" is not configured.`, null);
     }
     const prompt = [
+      handover,
       fillTemplate(stage.prompt, {
         key: item.key,
         title: item.title,
@@ -337,7 +338,9 @@ export class FactoryEngine {
             : `Handoff from the previous stage:\n${item.lastSummary}`,
       }).trim(),
       stageProtocol(item, stage.label, stage.review),
-    ].join("\n\n");
+    ]
+      .filter((part) => part !== "")
+      .join("\n\n");
     try {
       // bb assigns a worktree after the first thread is created, so the
       // ticket's worktree is read back from its earlier threads when needed.
@@ -707,10 +710,17 @@ export class FactoryEngine {
       this.limited.delete(this.limitKey(projectId, role));
       return role;
     }
+    return this.fallbackOf(role);
+  }
+
+  private fallbackOf(role: Role): Role {
+    const otherProvider = role.fallbackProviderId !== "" && role.fallbackProviderId !== role.providerId;
     return {
       ...role,
+      providerId: role.fallbackProviderId || role.providerId,
       model: role.fallbackModel,
-      reasoningLevel: role.fallbackReasoningLevel || role.reasoningLevel,
+      // A thinking level only carries over inside one provider.
+      reasoningLevel: role.fallbackReasoningLevel || (otherProvider ? "" : role.reasoningLevel),
     };
   }
 
@@ -743,13 +753,30 @@ export class FactoryEngine {
       // Without a reported reset, try the first choice again after an hour.
       this.limited.set(this.limitKey(projectId, role), resetsAtMs ?? Date.now() + 60 * 60 * 1000);
       this.switched.add(threadId);
-      await this.effects.switchModel(
-        threadId,
-        role.fallbackModel,
-        role.fallbackReasoningLevel || role.reasoningLevel,
-      );
-      await this.effects.retry(threadId);
-      this.effects.log(`${this.describeThread(threadId)} hit a usage limit on ${role.model}; continuing on ${role.fallbackModel}.`);
+      const fallback = this.fallbackOf(role);
+      const who = this.describeThread(threadId);
+      if (fallback.providerId === role.providerId) {
+        // Same provider: the thread keeps its conversation and changes model.
+        await this.effects.switchModel(threadId, fallback.model, fallback.reasoningLevel);
+        await this.effects.retry(threadId);
+      } else {
+        // A thread cannot change provider, so its work moves to a new thread
+        // on the fallback, which picks up from the worktree and the old log.
+        const handover = `The thread that was doing this (${threadId}) ran out of usage on its model partway through and cannot continue. Before anything else, see what it finished: check the worktree (git status, git log) and read its conversation with \`bb thread log ${threadId}\`. Continue from there; do not redo finished work.`;
+        const binding = this.store.getBinding(threadId);
+        if (binding?.agentId != null) {
+          const next = await this.spawnAgent(binding.projectId, binding.agentId, handover);
+          this.switched.add(next.threadId ?? "");
+        } else {
+          const current = this.currentStage(threadId);
+          if (current === null || CLOSED.has(current.item.status)) return false;
+          this.closeEntriesFor(current.item.id);
+          const started = await this.runStage(current.item, this.store.getConfig(projectId), handover);
+          this.switched.add(started.threads[current.stageId] ?? "");
+        }
+        this.effects.changed();
+      }
+      this.effects.log(`${who} hit a usage limit on ${role.model}; continuing on ${fallback.providerId} ${fallback.model}.`);
       return true;
     });
   }

@@ -10,9 +10,11 @@ export const roleSchema = z.object({
   reasoningLevel: z.string().max(40).default(""),
   permissionMode: z.enum(["", "accept-edits", "auto", "full"]).default(""),
   /**
-   * Model (same provider) to switch to when this role's model hits a usage
-   * limit. Empty means no fallback: the limit lands in the founder's inbox.
+   * Where this role's work goes when its model hits a usage limit: a model,
+   * on this provider or (when `fallbackProviderId` is set) another one. An
+   * empty model means no fallback: the limit lands in the founder's inbox.
    */
+  fallbackProviderId: z.string().max(80).default(""),
   fallbackModel: z.string().max(120).default(""),
   fallbackReasoningLevel: z.string().max(40).default(""),
 });

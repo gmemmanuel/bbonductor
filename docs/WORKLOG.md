@@ -25,6 +25,14 @@ In rough order.
 
 ## Log
 
+### 19 November 2026 (fourth session): first real lane, fallback on any provider, phone layout
+
+- **Lane 4 of the Justus board runs in bb.** Tagged `bb` in the schedule; the refresh queued its five tickets and the first (JUS-1011, how a workout went comes before the reflection) started plan review on a real Claude Code thread in its own worktree. This is the first real agent run in the factory.
+- **Fallback can be on another provider**: one picker lists every provider's models; mid-work the stage or standing agent moves to a replacement thread with a handover.
+- **Phone layout** for the inbox and swimlanes; role table dropdowns have even widths.
+- A session restart dropped four founder messages; he resent them as a screenshot.
+- **Checked:** 39 behaviour tests, 24 live checks, phone and desktop screenshots. **Not checked:** a real usage-limit failure; the page on an actual phone through bb's remote address.
+
 ### 19 November 2026 (third session): builder tiers, model fallback, bb's Conductor layout
 
 - **Builder tiers.** Roles `build`, `build-tier-2`, `build-tier-3`; the build stage picks by the ticket's plan tier, which arrives through `sync`, `lanes` and `enqueue`. Saved configurations gain the two new roles as copies of the existing builder.

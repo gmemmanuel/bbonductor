@@ -20,7 +20,7 @@ export const CLI_COMMANDS = [
   { name: "answer", summary: "Answer an inbox entry", usage: "bb factory answer <entry-id> <text…>" },
   { name: "agent", summary: "Start or rotate a standing agent", usage: "bb factory agent start|rotate <agent-id> [--project <id>]" },
   { name: "prompt", summary: "Send a standing agent a prompt, starting it if needed (for automations)", usage: "bb factory prompt <agent-id> <text…> [--project <id>]" },
-  { name: "role", summary: "Set which model plays a role", usage: "bb factory role <role> [--provider <id>] [--model <id>] [--reasoning <level>] [--permission accept-edits|auto|full] [--fallback-model <id>] [--fallback-reasoning <level>] [--project <id>]" },
+  { name: "role", summary: "Set which model plays a role", usage: "bb factory role <role> [--provider <id>] [--model <id>] [--reasoning <level>] [--permission accept-edits|auto|full] [--fallback-provider <id>] [--fallback-model <id>] [--fallback-reasoning <level>] [--project <id>]" },
   { name: "config", summary: "Print the factory configuration", usage: "bb factory config [--project <id>]" },
 ];
 
@@ -264,6 +264,7 @@ export async function runCli(
           model: flag("model") ?? role.model,
           reasoningLevel: flag("reasoning") ?? role.reasoningLevel,
           permissionMode: (permission ?? role.permissionMode) as typeof role.permissionMode,
+          fallbackProviderId: flag("fallback-provider") ?? role.fallbackProviderId,
           fallbackModel: flag("fallback-model") ?? role.fallbackModel,
           fallbackReasoningLevel: flag("fallback-reasoning") ?? role.fallbackReasoningLevel,
         };
@@ -282,10 +283,10 @@ export async function runCli(
   }
 }
 
-export function describeRole(role: { providerId: string; model: string; reasoningLevel: string; fallbackModel?: string }): string {
+export function describeRole(role: { providerId: string; model: string; reasoningLevel: string; fallbackModel?: string; fallbackProviderId?: string }): string {
   const parts = [role.providerId, role.model, role.reasoningLevel].filter((part) => part !== "");
   const base = parts.length === 0 ? "project default" : parts.join(" · ");
-  return role.fallbackModel ? `${base} (falls back to ${role.fallbackModel})` : base;
+  return role.fallbackModel ? `${base} (falls back to ${[role.fallbackProviderId, role.fallbackModel].filter(Boolean).join(" ")})` : base;
 }
 
 export function formatStatus(store: FactoryStore, projectId: string): string {
