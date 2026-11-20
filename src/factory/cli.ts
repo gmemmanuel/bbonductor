@@ -175,6 +175,7 @@ export async function runCli(
             ...(typeof entry.brief === "string" ? { brief: entry.brief } : {}),
             ...(typeof entry.pipeline === "string" ? { pipeline: entry.pipeline } : {}),
             ...(entry.tier === 1 || entry.tier === 2 || entry.tier === 3 ? { tier: entry.tier } : {}),
+            ...(entry.parked === true ? { parked: true } : {}),
           })),
         }));
         const report = await engine.syncLanes(projectId(), lanes, ctx.threadId ?? null);
@@ -304,7 +305,7 @@ export function describeRole(role: { providerId: string; model: string; reasonin
 
 export function formatStatus(store: FactoryStore, projectId: string): string {
   const config = store.getConfig(projectId);
-  const items = store.listItems(projectId).filter((item) => item.status !== "cancelled");
+  const items = store.listItems(projectId).filter((item) => item.status !== "cancelled" && item.status !== "archived");
   const lines: string[] = [];
   const lanes = [...new Set(items.map((item) => item.lane))];
   for (const lane of lanes) {
@@ -312,7 +313,7 @@ export function formatStatus(store: FactoryStore, projectId: string): string {
     for (const item of items.filter((candidate) => candidate.lane === lane)) {
       const stageId = config.pipelines[item.pipeline]?.[item.stageIndex];
       const stage = stageId === undefined ? "" : (config.stages[stageId]?.label ?? stageId);
-      lines.push(`  ${item.key}  ${item.status}${item.status === "done" ? "" : `  ${stage}`}  — ${item.title}`);
+      lines.push(`  ${item.key}  ${item.parked ? "later" : item.status}${item.status === "done" ? "" : `  ${stage}`}  — ${item.title}`);
     }
   }
   if (lines.length === 0) lines.push("No tickets in the factory.");

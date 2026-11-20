@@ -230,8 +230,10 @@ async function main() {
     // --- finishing frees the lane
     bb(["factory", "done", "--outcome", "complete", "--summary", "Merged."], as(ship));
     check("the ticket finishes after its last stage", ticket("LIVE-1").status === "done");
-    const tidied = await until(() => (JSON.parse(bb(["thread", "list", "--project", project, "--json"])).some((t) => t.id === build) ? null : true));
-    check("a finished ticket's threads are archived", tidied === true);
+    check("a finished ticket's threads are left for the founder to archive", threads().some((t) => t.id === build));
+    for (const id of Object.values(ticket("LIVE-1").threads)) bb(["thread", "archive", id]);
+    const cleared = await until(() => (status().items.find((i) => i.key === "LIVE-1")?.status === "archived" ? true : null));
+    check("archiving its workspace clears a finished ticket from the board", cleared === true);
     const next = await until(() => (ticket("LIVE-2").status !== "queued" ? true : null));
     check("the next ticket in the lane starts", next === true);
   } finally {

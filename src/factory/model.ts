@@ -69,6 +69,7 @@ export const ITEM_STATUSES = [
   "stalled",
   "failed",
   "done",
+  "archived",
   "cancelled",
 ] as const;
 export type ItemStatus = (typeof ITEM_STATUSES)[number];
@@ -92,6 +93,8 @@ export const itemSchema = z.object({
   /** Review stages already passed once; skipped when the author finishes fixes. */
   passedReviews: z.array(z.string()),
   lastSummary: z.string(),
+  /** Parked by the founder ("Later"): shown in its lane, never started. */
+  parked: z.boolean().default(false),
   /** What the founder must try before this ships, and whether he approved it. */
   founderCheck: z.object({ text: z.string(), approved: z.boolean() }).nullable().default(null),
   /** The planner thread a stage is waiting on, and whether it was reminded. */
