@@ -11,6 +11,11 @@ What Gideon has decided about the factory, newest first. Check here before re-op
 
 ---
 
+## 20 November 2026 (chime)
+
+**A calm chime plays when something lands in the inbox.** (Founder)
+"Conductor uses a subway train stop ding which I like but something creative/calm like that would be great." Two soft falling bell notes, in any open bb window; it can be switched off on the page.
+
 ## 20 November 2026 (page and message feedback)
 
 **Threads in the factory end with one line, not a founder summary.** (Founder)

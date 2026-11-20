@@ -23,6 +23,7 @@ import {
 import { FactoryStore } from "./src/factory/store.js";
 
 const CHANGED = "factory-changed";
+const INBOX_ARRIVED = "factory-inbox-arrived";
 
 const projectRef = z.object({ projectId: z.string().min(1) });
 const entryRef = z.object({ entryId: z.string().min(1) });
@@ -188,6 +189,12 @@ export default async function plugin(bb: BbPluginApi) {
       return rows.some((row) => (row as { status?: string }).status === "pending");
     },
     notify(title, body, threadId) {
+      // Open bb windows play a chime; phones and closed windows get the push below.
+      try {
+        bb.realtime.publish(INBOX_ARRIVED, null);
+      } catch (error) {
+        bb.log.debug(`publish failed: ${messageOf(error)}`);
+      }
       void bb.sdk.plugins
         .callRpc({
           pluginId: "push-notifications",

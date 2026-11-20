@@ -422,6 +422,14 @@ describe("founder inbox", () => {
     expect((await t.state()).inbox[0]).toMatchObject({ kind: "stalled", from: "Chief of staff · JUS-1" });
   });
 
+  it("signals open windows to chime when something lands in the inbox", async () => {
+    const arrivals = () => t.harness.inspection.realtimeSignals.filter((signal) => signal.channel === "factory-inbox-arrived").length;
+    const planner = await t.rpc<{ threadId: string }>("startAgent", { projectId: PROJECT, agentId: "orchestrator" });
+    expect(arrivals()).toBe(0);
+    await t.tool("factory_ask_founder", planner.threadId, { question: "Create a ticket?" });
+    expect(arrivals()).toBe(1);
+  });
+
   it("lets a standing agent ask the founder directly", async () => {
     const planner = await t.rpc<{ threadId: string }>("startAgent", { projectId: PROJECT, agentId: "orchestrator" });
     await t.tool("factory_ask_founder", planner.threadId, { question: "Create a ticket for the new error class?" });
