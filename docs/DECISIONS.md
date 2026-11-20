@@ -13,6 +13,9 @@ What Gideon has decided about the factory, newest first. Check here before re-op
 
 ## 19 November 2026 (later)
 
+**Lanes pick up only planned work.** (Founder)
+"Items that don't have a plan and that are marked with the later tag should not be automatically picked up, but anything else with a plan can be picked up." Enforced where lanes are filled, in the Justus `sequence` skill. A Small bug counts as planned because its ticket is its plan (Agent, pending founder).
+
 **Builders are set per plan tier: tier 1, tier 2 and tier 3 each have their own model.** (Founder)
 "There should actually be settings for a tier 1, 2 and 3 builder and I can set different models." The tier comes from the plan's implementer tier line.
 
