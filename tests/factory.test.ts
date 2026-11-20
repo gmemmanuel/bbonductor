@@ -408,6 +408,21 @@ describe("founder inbox", () => {
     expect((await t.state()).inbox[0]).toMatchObject({ kind: "question", from: "Planner / strategist" });
   });
 
+  it("does not remind a thread that is waiting on its own background work", async () => {
+    await t.enqueue("JUS-1", "Coach", "reviewed");
+    const waiting = (extra: object) =>
+      t.harness.behavior
+        .emitThreadEvent("thread.idle", { thread: { ...makeThreadResponse({ id: "th_1", projectId: PROJECT }), ...extra }, lastAssistantText: "Local CI is still running." } as never)
+        .then(() => new Promise((resolve) => setTimeout(resolve, 20)));
+    await waiting({ activeBackgroundCommandCount: 1 });
+    await waiting({ activeBackgroundAgentCount: 1 });
+    expect(t.sent).toEqual([]);
+    expect((await t.item("JUS-1")).status).toBe("running");
+    // With nothing running in the background, the usual reminder applies.
+    await waiting({});
+    expect(t.sent).toHaveLength(1);
+  });
+
   it("nudges a thread that stops without reporting, then escalates the second time", async () => {
     await t.enqueue("JUS-1", "Coach", "reviewed");
     await t.emit("thread.idle", "th_1", { lastAssistantText: "All done!" });

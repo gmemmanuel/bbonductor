@@ -45,6 +45,9 @@ Non-obvious decisions and process knowledge for agents working on the Factory pl
 - **bb names a workspace after its first thread.** Title the first stage thread with the ticket key alone; later threads carry the stage.
 - **Reused plugin ids keep stale data, part two.** Saved role labels are data. Renaming a default (Orchestrator to Planner / strategist) needs a rule in `withNewDefaults` that only touches a label still at its old default.
 
+- **A turn that ends to wait on a background command is not a stop.** A real code review ended its turn with "Local CI is still running" and was reminded, then flagged stalled. The idle handler now skips threads whose DTO reports active background agents or commands. Whether bb always carries `activeBackgroundCommandCount` on the `thread.idle` DTO is unverified; without it the old behaviour applies.
+- **`ship-turn.mjs land` exits 1 with "fetch failed" on a network drop and keeps the turn.** Wrapping it in a pipeline (`| tail`) hides its exit code: a failed run was reported as merged. Check `origin/main` for the commit, and retry on that message rather than trusting the wrapper.
+
 ## Testing
 
 - **The fake plugin host proves the rules; only real bb proves the wiring.** Run both. The live check starts bb with its own data folder and ports, so it never touches `~/.bb`.

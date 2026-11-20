@@ -199,6 +199,11 @@ export default async function plugin(bb: BbPluginApi) {
     guard("idle", async () => {
       await engine.reconcileInteractions();
       await engine.onAgentIdle(thread.id);
+      // A thread that ended its turn to wait on its own background command or
+      // agent (a long test run, say) has not stopped: bb wakes it when that
+      // finishes. Reminding it, then calling it stalled, is noise.
+      const waiting = thread as { activeBackgroundAgentCount?: number; activeBackgroundCommandCount?: number };
+      if ((waiting.activeBackgroundAgentCount ?? 0) + (waiting.activeBackgroundCommandCount ?? 0) > 0) return;
       await engine.onIdle(thread.id, lastAssistantText);
     });
   });
