@@ -541,6 +541,61 @@ describe("falling back when a model's limit runs out", () => {
     expect((await t.state()).inbox[0]).toMatchObject({ kind: "failed" });
   });
 
+  it("hands a stage to a new thread on another provider, in the same worktree, with a handover", async () => {
+    const { config } = await t.state();
+    await t.rpc("saveConfig", {
+      projectId: PROJECT,
+      config: {
+        ...config,
+        roles: {
+          ...config.roles,
+          build: { ...config.roles.build, providerId: "claude-code", model: "claude-opus-5-5", reasoningLevel: "high", fallbackProviderId: "codex", fallbackModel: "gpt-sol" },
+        },
+      },
+    });
+    await t.enqueue("JUS-1", "Coach", "reviewed");
+    await t.emit("thread.failed", "th_1", { error: "usage limit reached" });
+    await limit("th_1");
+
+    // A thread cannot change provider: nothing is switched in place.
+    expect(t.updated).toEqual([]);
+    expect(t.retried).toEqual([]);
+    const replacement = t.spawned.at(-1)!;
+    expect(replacement).toMatchObject({ id: "th_2", title: "JUS-1 · Build", providerId: "codex", model: "gpt-sol" });
+    expect(replacement).not.toHaveProperty("reasoningLevel");
+    expect(replacement.environment).toEqual({ type: "reuse", environmentId: "env_th_1" });
+    expect(replacement.prompt).toContain("bb thread log th_1");
+    expect(replacement.prompt).toContain("do not redo finished work");
+    expect((await t.item("JUS-1")).status).toBe("running");
+    expect((await t.state()).inbox).toEqual([]);
+
+    // The new thread reports for the stage; the old one no longer can.
+    await t.tool("factory_stage_done", "th_2", { outcome: "complete", summary: "Built." });
+    expect(t.spawned.at(-1)!.title).toBe("JUS-1 · Review code");
+    // A limit on the fallback as well goes to the founder, not back and forth.
+    await t.enqueue("JUS-2", "Plan", "reviewed");
+    expect(t.spawned.at(-1)).toMatchObject({ title: "JUS-2 · Build", providerId: "codex" });
+  });
+
+  it("moves a standing agent to a new thread on another provider when its limit runs out", async () => {
+    const { config } = await t.state();
+    await t.rpc("saveConfig", {
+      projectId: PROJECT,
+      config: {
+        ...config,
+        roles: {
+          ...config.roles,
+          orchestrator: { ...config.roles.orchestrator, providerId: "claude-code", model: "claude-opus-5-5", fallbackProviderId: "codex", fallbackModel: "gpt-sol" },
+        },
+      },
+    });
+    await t.rpc("startAgent", { projectId: PROJECT, agentId: "orchestrator" });
+    await limit("th_1");
+    expect(t.spawned.at(-1)).toMatchObject({ id: "th_2", title: "Orchestrator", providerId: "codex", model: "gpt-sol", pinned: true });
+    expect(t.spawned.at(-1)!.prompt).toContain("bb thread log th_1");
+    expect((await t.state()).agents.find((agent) => agent.agentId === "orchestrator")!.threadId).toBe("th_2");
+  });
+
   it("leaves a role with no fallback alone", async () => {
     await t.enqueue("JUS-1", "Coach", "reviewed");
     await limit("th_1");

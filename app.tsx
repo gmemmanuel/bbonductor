@@ -116,13 +116,13 @@ function InboxCard({ entry, rpc, run }: { entry: InboxEntry; rpc: Rpc; run: (wor
         <p className="whitespace-pre-wrap text-sm text-muted-foreground">{entry.context}</p>
       )}
       {entry.options.length === 0 ? null : (
-        <div className="flex flex-col items-start gap-1.5">
+        <div className="flex flex-col items-stretch gap-1.5 sm:items-start">
           {entry.options.map((option, index) => (
             <Button
               key={option}
               variant="outline"
               size="sm"
-              className="h-auto whitespace-normal py-1.5 text-left"
+              className="h-auto min-h-10 justify-start whitespace-normal py-2 text-left sm:min-h-0 sm:py-1.5"
               onClick={() => setAnswer(option)}
             >
               {String.fromCharCode(65 + index)}. {option}
@@ -144,9 +144,9 @@ function InboxCard({ entry, rpc, run }: { entry: InboxEntry; rpc: Rpc; run: (wor
               onChange={(event) => setAnswer(event.target.value)}
               placeholder={entry.kind === "question" ? "Your decision" : "Tell the agent what to do"}
               aria-label={`Answer ${entry.from}`}
-              className="min-w-48 flex-1"
+              className="h-10 w-full basis-full text-base sm:h-9 sm:w-auto sm:min-w-48 sm:flex-1 sm:basis-0 sm:text-sm"
             />
-            <Button type="submit" size="sm" disabled={answer.trim() === ""}>
+            <Button type="submit" size="sm" className="h-10 flex-1 sm:h-8 sm:flex-none" disabled={answer.trim() === ""}>
               Send
             </Button>
           </>
@@ -252,7 +252,22 @@ function Swimlanes({ state, rpc, run }: { state: FactoryState; rpc: Rpc; run: (w
     return <Empty>No tickets yet. Add one below, or ask the orchestrator to queue work.</Empty>;
   }
   return (
-    <div className="overflow-x-auto rounded-lg border border-border">
+    <>
+    {/* Phones: one card per lane, tickets stacked in order. */}
+    <div className="space-y-3 md:hidden">
+      {lanes.map((lane) => (
+        <div key={lane} className="space-y-2 rounded-lg border border-border p-3" data-testid="lane-card">
+          <div className="text-sm font-medium">{lane}</div>
+          {open
+            .filter((item) => item.lane === lane)
+            .map((item) => (
+              <Ticket key={item.id} item={item} config={state.config} lanes={lanes} rpc={rpc} run={run} />
+            ))}
+        </div>
+      ))}
+      {done === 0 ? null : <p className="text-xs text-muted-foreground">{done} finished</p>}
+    </div>
+    <div className="hidden overflow-x-auto rounded-lg border border-border md:block">
       <table className="w-full min-w-[640px] border-collapse text-left align-top">
         <thead className="bg-secondary/40 text-xs text-muted-foreground">
           <tr>
@@ -282,6 +297,7 @@ function Swimlanes({ state, rpc, run }: { state: FactoryState; rpc: Rpc; run: (w
       </table>
       {done === 0 ? null : <p className="border-t border-border px-3 py-2 text-xs text-muted-foreground">{done} finished</p>}
     </div>
+    </>
   );
 }
 
@@ -299,9 +315,9 @@ function AddTicket({ state, rpc, run }: { state: FactoryState; rpc: Rpc; run: (w
   };
   return (
     <form onSubmit={submit} className="flex flex-wrap items-center gap-2">
-      <Input value={key} onChange={(e) => setKey(e.target.value)} placeholder="Key (JUS-123)" aria-label="Ticket key" className="w-32" />
+      <Input value={key} onChange={(e) => setKey(e.target.value)} placeholder="Key (JUS-123)" aria-label="Ticket key" className="w-full sm:w-32" />
       <Input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Ticket title" aria-label="Ticket title" className="min-w-48 flex-1" />
-      <Input value={lane} onChange={(e) => setLane(e.target.value)} placeholder="Lane" aria-label="Lane" className="w-32" />
+      <Input value={lane} onChange={(e) => setLane(e.target.value)} placeholder="Lane" aria-label="Lane" className="w-full sm:w-32" />
       <select className={selectClass} aria-label="Pipeline" value={pipeline} onChange={(e) => setPipeline(e.target.value)}>
         {Object.entries(state.config.pipelines).map(([name, stages]) => (
           <option key={name} value={name}>
@@ -339,7 +355,7 @@ function Roles({ state, rpc, run }: { state: FactoryState; rpc: Rpc; run: (work:
   return (
     <div className="space-y-3">
       <div className="overflow-x-auto rounded-lg border border-border">
-        <table className="w-full min-w-[640px] text-left text-sm">
+        <table className="w-full min-w-[820px] text-left text-sm">
           <thead className="bg-secondary/40 text-xs text-muted-foreground">
             <tr>
               <th className="px-3 py-2 font-medium">Role</th>
@@ -363,7 +379,7 @@ function Roles({ state, rpc, run }: { state: FactoryState; rpc: Rpc; run: (work:
                     <div className="text-xs text-muted-foreground">{usedBy(id).join(", ")}</div>
                   </td>
                   <td className="px-3 py-2">
-                    <select className={selectClass} aria-label={`${role.label} provider`} value={role.providerId} onChange={(e) => setRole(id, { providerId: e.target.value, model: "", reasoningLevel: "", fallbackModel: "", fallbackReasoningLevel: "" })}>
+                    <select className={cn(selectClass, "w-36")} aria-label={`${role.label} provider`} value={role.providerId} onChange={(e) => setRole(id, { providerId: e.target.value, model: "", reasoningLevel: "" })}>
                       <option value="">Project default</option>
                       {withCurrent(catalog.providers.map((p) => p.id), role.providerId).map((providerId) => (
                         <option key={providerId} value={providerId}>
@@ -373,7 +389,7 @@ function Roles({ state, rpc, run }: { state: FactoryState; rpc: Rpc; run: (work:
                     </select>
                   </td>
                   <td className="px-3 py-2">
-                    <select className={selectClass} aria-label={`${role.label} model`} value={role.model} onChange={(e) => setRole(id, { model: e.target.value, reasoningLevel: "" })}>
+                    <select className={cn(selectClass, "w-48")} aria-label={`${role.label} model`} value={role.model} onChange={(e) => setRole(id, { model: e.target.value, reasoningLevel: "" })}>
                       <option value="">Default</option>
                       {withCurrent([...new Set(models.map((m) => m.id))], role.model).map((modelId) => (
                         <option key={modelId} value={modelId}>
@@ -383,7 +399,7 @@ function Roles({ state, rpc, run }: { state: FactoryState; rpc: Rpc; run: (work:
                     </select>
                   </td>
                   <td className="px-3 py-2">
-                    <select className={selectClass} aria-label={`${role.label} thinking`} value={role.reasoningLevel} onChange={(e) => setRole(id, { reasoningLevel: e.target.value })}>
+                    <select className={cn(selectClass, "w-24")} aria-label={`${role.label} thinking`} value={role.reasoningLevel} onChange={(e) => setRole(id, { reasoningLevel: e.target.value })}>
                       <option value="">Default</option>
                       {withCurrent(reasoning, role.reasoningLevel).map((level) => (
                         <option key={level} value={level}>
@@ -393,12 +409,36 @@ function Roles({ state, rpc, run }: { state: FactoryState; rpc: Rpc; run: (work:
                     </select>
                   </td>
                   <td className="px-3 py-2">
-                    <select className={selectClass} aria-label={`${role.label} fallback model`} value={role.fallbackModel} onChange={(e) => setRole(id, { fallbackModel: e.target.value, fallbackReasoningLevel: "" })}>
+                    <select
+                      className={cn(selectClass, "w-56")}
+                      aria-label={`${role.label} fallback`}
+                      value={role.fallbackModel === "" ? "" : `${role.fallbackProviderId || role.providerId}|${role.fallbackModel}`}
+                      onChange={(e) => {
+                        const [providerId = "", model = ""] = e.target.value.split("|");
+                        setRole(id, {
+                          fallbackProviderId: model === "" || providerId === role.providerId ? "" : providerId,
+                          fallbackModel: model,
+                          fallbackReasoningLevel: "",
+                        });
+                      }}
+                    >
                       <option value="">Ask me</option>
-                      {withCurrent([...new Set(models.map((m) => m.id))].filter((modelId) => modelId !== role.model), role.fallbackModel).map((modelId) => (
-                        <option key={modelId} value={modelId}>
-                          {models.find((m) => m.id === modelId)?.name ?? modelId}
+                      {role.fallbackModel !== "" &&
+                      !catalog.models.some((m) => m.providerId === (role.fallbackProviderId || role.providerId) && m.id === role.fallbackModel) ? (
+                        <option value={`${role.fallbackProviderId || role.providerId}|${role.fallbackModel}`}>
+                          {role.fallbackModel}
                         </option>
+                      ) : null}
+                      {catalog.providers.map((provider) => (
+                        <optgroup key={provider.id} label={provider.name}>
+                          {catalog.models
+                            .filter((m) => m.providerId === provider.id && !(provider.id === role.providerId && m.id === role.model))
+                            .map((m) => (
+                              <option key={m.id} value={`${provider.id}|${m.id}`}>
+                                {m.name}
+                              </option>
+                            ))}
+                        </optgroup>
                       ))}
                     </select>
                   </td>

@@ -11,6 +11,16 @@ What Gideon has decided about the factory, newest first. Check here before re-op
 
 ---
 
+## 19 November 2026 (evening)
+
+**A role's fallback can be on another provider.** (Founder)
+"The fallback inherently has to be a different provider, it can't be the same provider except for Fable which runs out before the rest." Replaces the same-provider-only fallback built earlier the same day.
+
+**The inbox must work on bb's mobile web interface.** (Founder)
+"That's going to be the most complex piece to get right."
+
+**Lane 4 is the first lane run by bb.** (Founder)
+
 ## 19 November 2026 (later)
 
 **Lanes pick up only planned work.** (Founder)
