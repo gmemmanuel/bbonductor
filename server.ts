@@ -81,6 +81,7 @@ export const rpcContract = defineRpcContract({
   answer: { input: entryRef.extend({ answer: z.string().trim().min(1).max(8000) }), output: inboxSchema },
   dismiss: { input: entryRef, output: inboxSchema },
   retry: { input: entryRef, output: inboxSchema },
+  approve: { input: entryRef, output: itemSchema },
   startAgent: { input: projectRef.extend({ agentId: z.string() }), output: agentStateSchema },
   rotateAgent: { input: projectRef.extend({ agentId: z.string() }), output: agentStateSchema },
 });
@@ -151,6 +152,11 @@ export default async function plugin(bb: BbPluginApi) {
         model,
         ...(reasoningLevel === "" ? {} : { reasoningLevel }),
       });
+    },
+    archive(threadId) {
+      void bb.sdk.threads
+        .archive({ threadId })
+        .catch((error: unknown) => bb.log.debug(`archive skipped: ${messageOf(error)}`));
     },
     async environmentOf(threadId) {
       return (await bb.sdk.threads.get({ threadId })).environmentId;
@@ -263,12 +269,18 @@ export default async function plugin(bb: BbPluginApi) {
         .min(1)
         .max(8000)
         .describe("Handoff the next reader can act on without this thread: what was done, where it is, what is left."),
+      founder_check: z
+        .string()
+        .max(6000)
+        .optional()
+        .describe("Required when the ticket changes anything a user sees. Written for the founder: exactly what changed, the branch, how to run it, a dev account that shows it (existing or seeded, with how to sign in), and numbered steps with what he should see. It ships only after he approves."),
       rereview: z
         .boolean()
         .optional()
         .describe("Author only: ask for the review to run again. Use only when your fixes raise a new product or scope decision."),
     }),
-    execute: (input, { threadId }) => toolResult(() => engine.stageDone(threadId, input)),
+    execute: ({ founder_check, ...input }, { threadId }) =>
+      toolResult(() => engine.stageDone(threadId, { ...input, founderCheck: founder_check })),
   });
 
   bb.agents.registerTool({
@@ -281,11 +293,13 @@ export default async function plugin(bb: BbPluginApi) {
       context: z.string().max(4000).optional().describe("The situation: who is affected, where, and what happens today."),
       options: z.array(z.string().max(600)).max(4).optional().describe("Each option and what the user would see."),
       recommendation: z.string().max(1000).optional().describe("Which option you recommend and why."),
+      about: z.string().max(80).optional().describe('Chief of staff only: the ticket thread this is about, such as "JUS-12:build". The founder\'s answer goes to that thread.'),
     }),
     execute: (input, { threadId }) =>
       toolResult(async () => {
-        await engine.ask(threadId, input);
-        return "Asked. The founder's answer will arrive in this thread as a message. End your turn now.";
+        const entry = await engine.ask(threadId, input);
+        if (entry.id === "") return "Sent to the chief of staff, who will either answer you or take it to the founder. The reply arrives in this thread. End your turn now.";
+        return "Asked. The founder's answer will arrive in the thread it concerns. End your turn now.";
       }),
   });
 
@@ -492,6 +506,7 @@ export default async function plugin(bb: BbPluginApi) {
     answer: ({ entryId, answer }) => engine.answer(entryId, answer),
     dismiss: ({ entryId }) => engine.dismiss(entryId),
     retry: ({ entryId }) => engine.retry(entryId),
+    approve: ({ entryId }) => engine.approveCheck(entryId),
     startAgent: ({ projectId, agentId }) => engine.startAgent(projectId, agentId),
     rotateAgent: ({ projectId, agentId }) => engine.rotateAgent(projectId, agentId),
   });
@@ -500,4 +515,4 @@ export default async function plugin(bb: BbPluginApi) {
 }
 
 /** Skills this plugin ships; `configure` may only select names from here. */
-const SKILLS = new Set(["factory", "factory-orchestrator", "factory-harness-improver", "factory-watch"]);
+const SKILLS = new Set(["factory", "factory-orchestrator", "factory-chief-of-staff", "factory-harness-improver", "factory-watch"]);

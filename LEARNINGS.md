@@ -40,6 +40,11 @@ Non-obvious decisions and process knowledge for agents working on the Factory pl
 - **The first real build stopped on a "planner" the factory did not know about.** Justus builders are told to return certain blockers to "the planner" with a `PLANNER INPUT REQUIRED` handoff; with no such role in the pipeline the builder reported `blocked` and it landed in the founder's inbox. The planner of a ticket is the thread that reviewed its plan: `factory_ask_planner` sends there, the reviewer answers with `factory_message` to `KEY:stage`, and that reply is what resumes the stage (`with-planner` status). Project vocabulary for roles has to map onto a thread, or it ends up with the founder.
 - **A merged pull request is not installed.** bb tracks `git:…@main` but only moves on `bb plugin update bbonductor --yes`. The founder looked for a feature that was merged and not yet updated. Update right after every merge.
 
+- **Agents forward; they do not translate.** The first founder-facing "blocked" entry was a builder's handoff to another agent, full of commit ids and run ids, and the founder could not tell what he had to do. A prompt rule ("plain language") did not prevent it. The fix is structural: stage threads cannot reach the inbox; a chief of staff either settles the matter or rewrites it.
+- **The lane did not skip a blocked ticket.** The founder saw three more tickets finish and assumed it had moved on past the blocked one. The first ticket had been unblocked by hand and completed; the lane then ran the next three in order. Say what happened in terms of the board when reporting overnight runs.
+- **bb names a workspace after its first thread.** Title the first stage thread with the ticket key alone; later threads carry the stage.
+- **Reused plugin ids keep stale data, part two.** Saved role labels are data. Renaming a default (Orchestrator to Planner / strategist) needs a rule in `withNewDefaults` that only touches a label still at its old default.
+
 ## Testing
 
 - **The fake plugin host proves the rules; only real bb proves the wiring.** Run both. The live check starts bb with its own data folder and ports, so it never touches `~/.bb`.

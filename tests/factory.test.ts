@@ -28,11 +28,12 @@ function setup() {
   const spawned: Spawned[] = [];
   const sent: { threadId: string; text: string; senderThreadId?: string }[] = [];
   const retried: string[] = [];
+  const archived: string[] = [];
   const updated: { threadId: string; model?: string; reasoningLevel?: string }[] = [];
   let failSpawn = false;
   const host = createFakePluginHost({
     pluginId: "bbonductor",
-    agentSkillIds: ["factory", "factory-orchestrator", "factory-harness-improver", "factory-watch"],
+    agentSkillIds: ["factory", "factory-orchestrator", "factory-chief-of-staff", "factory-harness-improver", "factory-watch"],
     sdk: {
       projects: { list: async () => [{ id: PROJECT, name: "Justus" }] },
       system: { config: async () => ({ primaryHostId: "host_local" }) },
@@ -67,6 +68,10 @@ function setup() {
           return {};
         },
         unpin: async () => ({}),
+        archive: async (args: { threadId: string }) => {
+          archived.push(args.threadId);
+          return {};
+        },
         update: async (args: { threadId: string; model?: string; reasoningLevel?: string }) => {
           updated.push(args);
           return {};
@@ -97,6 +102,7 @@ function setup() {
     spawned,
     sent,
     retried,
+    archived,
     updated,
     rpc,
     state,
@@ -126,7 +132,7 @@ describe("swimlanes", () => {
     expect((await t.item("JUS-1")).status).toBe("running");
     expect((await t.item("JUS-2")).status).toBe("queued");
     expect((await t.item("JUS-3")).status).toBe("running");
-    expect(t.spawned.map((thread) => thread.title)).toEqual(["JUS-1 · Plan", "JUS-3 · Plan"]);
+    expect(t.spawned.map((thread) => thread.title)).toEqual(["JUS-1", "JUS-3"]);
   });
 
   it("gives each ticket its own new worktree", async () => {
@@ -338,29 +344,68 @@ describe("builder and plan reviewer go back and forth without the founder", () =
 });
 
 describe("founder inbox", () => {
-  it("records a question, pauses the ticket, and delivers the answer to the asking thread", async () => {
+  it("sends a stage's founder question to the chief of staff first, who can settle it without the founder", async () => {
     await t.enqueue("JUS-1", "Coach", "reviewed");
-    await t.tool("factory_ask_founder", "th_1", {
+    const reply = await t.tool("factory_ask_founder", "th_1", {
+      question: "May I raise the QA call budget from 10 to 20?",
+      context: "The replay needs 20 calls.",
+    });
+    expect(reply).toContain("chief of staff");
+
+    // The chief of staff is started on demand and receives the whole question.
+    expect(t.spawned.at(-1)).toMatchObject({ id: "th_2", title: "Chief of staff", pinned: true });
+    expect(t.sent.at(-1)).toMatchObject({ threadId: "th_2", senderThreadId: "th_1" });
+    expect(t.sent.at(-1)!.text).toContain("raise the QA call budget");
+    expect(t.sent.at(-1)!.text).toContain('"JUS-1:build"');
+    expect((await t.state()).inbox).toEqual([]);
+    expect((await t.item("JUS-1")).status).toBe("triage");
+
+    // Waiting on the chief of staff is not a stall.
+    await t.emit("thread.idle", "th_1", { lastAssistantText: "Waiting." });
+    expect(t.sent.at(-1)!.threadId).toBe("th_2");
+
+    await t.tool("factory_message", "th_2", { to: "JUS-1:build", message: "Yes, 20 calls. Record it in the plan." });
+    expect(t.sent.at(-1)).toMatchObject({ threadId: "th_1" });
+    expect((await t.item("JUS-1")).status).toBe("running");
+    expect((await t.state()).inbox).toEqual([]);
+  });
+
+  it("lets the chief of staff put one clear question to the founder, whose answer goes to the ticket's thread", async () => {
+    await t.enqueue("JUS-1", "Coach", "reviewed");
+    await t.tool("factory_ask_founder", "th_1", { question: "Rest day or missed?", context: "long agent text" });
+    await t.tool("factory_ask_founder", "th_2", {
+      about: "JUS-1:build",
       question: "Should a skipped run count as a rest day?",
       context: "Du skipped Tuesday; today Coach counts it as rest.",
       options: ["Count it as rest", "Count it as missed"],
       recommendation: "Count it as missed.",
     });
-
     const before = await t.state();
     expect(before.inbox).toHaveLength(1);
-    expect(before.inbox[0]).toMatchObject({ kind: "question", from: "Build · JUS-1", threadId: "th_1" });
+    expect(before.inbox[0]).toMatchObject({ kind: "question", from: "Build · JUS-1", threadId: "th_1", question: "Should a skipped run count as a rest day?" });
     expect((await t.item("JUS-1")).status).toBe("needs-founder");
-
-    // The agent ending its turn while it waits is not a stall.
-    await t.emit("thread.idle", "th_1", { lastAssistantText: "Waiting." });
-    expect(t.sent).toHaveLength(0);
 
     await t.rpc("answer", { entryId: before.inbox[0]!.id, answer: "Count it as missed." });
     expect(t.sent.at(-1)).toMatchObject({ threadId: "th_1" });
     expect(t.sent.at(-1)!.text).toContain("Count it as missed.");
     expect((await t.state()).inbox).toHaveLength(0);
     expect((await t.item("JUS-1")).status).toBe("running");
+  });
+
+  it("reminds a chief of staff that goes quiet, then tells the founder", async () => {
+    await t.enqueue("JUS-1", "Coach", "reviewed");
+    await t.tool("factory_stage_done", "th_1", { outcome: "blocked", summary: "Dev database is down." });
+    expect(t.sent.at(-1)!.text).toContain("Dev database is down.");
+    await t.emit("thread.idle", "th_2", { lastAssistantText: "Hm." });
+    expect(t.sent.at(-1)!.text).toContain("still waiting on you");
+    await t.emit("thread.idle", "th_2", { lastAssistantText: "Hm." });
+    expect((await t.state()).inbox[0]).toMatchObject({ kind: "stalled", from: "Chief of staff · JUS-1" });
+  });
+
+  it("lets a standing agent ask the founder directly", async () => {
+    const planner = await t.rpc<{ threadId: string }>("startAgent", { projectId: PROJECT, agentId: "orchestrator" });
+    await t.tool("factory_ask_founder", planner.threadId, { question: "Create a ticket for the new error class?" });
+    expect((await t.state()).inbox[0]).toMatchObject({ kind: "question", from: "Planner / strategist" });
   });
 
   it("nudges a thread that stops without reporting, then escalates the second time", async () => {
@@ -381,16 +426,15 @@ describe("founder inbox", () => {
     expect((await t.state()).inbox).toHaveLength(0);
   });
 
-  it("replaces a stall notice with the question when a stalled agent then asks the founder", async () => {
+  it("clears a stall notice when a stalled agent then asks for a decision", async () => {
     await t.enqueue("JUS-1", "Coach", "reviewed");
     await t.emit("thread.idle", "th_1", { lastAssistantText: "Hm." });
     await t.emit("thread.idle", "th_1", { lastAssistantText: "Hm." });
     expect((await t.item("JUS-1")).status).toBe("stalled");
 
     await t.tool("factory_ask_founder", "th_1", { question: "Which unit?" });
-    const { inbox } = await t.state();
-    expect(inbox.map((entry) => entry.kind)).toEqual(["question"]);
-    expect((await t.item("JUS-1")).status).toBe("needs-founder");
+    expect((await t.state()).inbox).toEqual([]);
+    expect((await t.item("JUS-1")).status).toBe("triage");
   });
 
   it("puts a failed turn in the inbox and retries it on request", async () => {
@@ -412,14 +456,8 @@ describe("founder inbox", () => {
 
     t.breakSpawn(false);
     await t.rpc("retry", { entryId: inbox[0]!.id });
-    expect(t.spawned[0]!.title).toBe("JUS-1 · Build");
+    expect(t.spawned[0]!.title).toBe("JUS-1");
     expect((await t.item("JUS-1")).status).toBe("running");
-  });
-
-  it("asks the founder when a stage reports blocked", async () => {
-    await t.enqueue("JUS-1", "Coach", "reviewed");
-    await t.tool("factory_stage_done", "th_1", { outcome: "blocked", summary: "Dev database is down." });
-    expect((await t.state()).inbox[0]).toMatchObject({ kind: "blocked", context: "Dev database is down." });
   });
 
   it("flags a stage thread that was archived out from under its ticket", async () => {
@@ -494,8 +532,8 @@ describe("standing agents and messaging", () => {
   it("starts the orchestrator when Watch hands it findings before it was ever started", async () => {
     await t.harness.behavior.runCli(["prompt", "watch", "Daily check."], { projectId: PROJECT });
     const result = await t.tool("factory_message", "th_1", { to: "orchestrator", message: "Two new error classes." });
-    expect(result).toContain("Delivered to Orchestrator");
-    expect(t.spawned.map((thread) => thread.title)).toEqual(["Watch", "Orchestrator"]);
+    expect(result).toContain("Delivered to Planner / strategist");
+    expect(t.spawned.map((thread) => thread.title)).toEqual(["Watch", "Planner / strategist"]);
     expect(t.sent.at(-1)).toMatchObject({ threadId: "th_2", senderThreadId: "th_1" });
     expect(t.sent.at(-1)!.text).toContain("Message from Watch");
   });
@@ -529,6 +567,54 @@ describe("standing agents and messaging", () => {
   });
 });
 
+describe("the founder tries a visible change before it ships", () => {
+  const CHECK = "What changed: the set row has a one-tap check. Branch gideon/jus-1. Run npm run dev. Sign in as demo+strength@example.com. 1. Open today's strength session...";
+  const toGate = async () => {
+    await t.enqueue("JUS-1", "Coach", "reviewed");
+    await t.tool("factory_stage_done", "th_1", { outcome: "complete", summary: "Built." });
+    await t.tool("factory_stage_done", "th_2", { outcome: "complete", summary: "Review complete.", founder_check: CHECK });
+  };
+
+  it("holds before ship with the check in the inbox, and ships when he approves", async () => {
+    await toGate();
+    expect(t.spawned).toHaveLength(2);
+    const { inbox } = await t.state();
+    expect(inbox[0]).toMatchObject({ kind: "check", from: "Ready to try · JUS-1", context: CHECK });
+    expect((await t.item("JUS-1")).status).toBe("needs-founder");
+
+    await t.rpc("approve", { entryId: inbox[0]!.id });
+    expect(t.spawned.at(-1)!.title).toBe("JUS-1 · Ship");
+    expect((await t.state()).inbox).toEqual([]);
+  });
+
+  it("sends his notes to the builder, and asks him again after the fix", async () => {
+    await toGate();
+    const first = (await t.state()).inbox[0]!;
+    await t.rpc("answer", { entryId: first.id, answer: "The check mark is too small." });
+    expect(t.sent.at(-1)).toMatchObject({ threadId: "th_1" });
+    expect(t.sent.at(-1)!.text).toContain("The check mark is too small.");
+    expect((await t.item("JUS-1")).status).toBe("running");
+
+    await t.tool("factory_stage_done", "th_1", { outcome: "complete", summary: "Bigger check mark.", founder_check: `${CHECK} Now 24pt.` });
+    // No second code review, and still no ship until he has tried it again.
+    expect(t.spawned).toHaveLength(2);
+    expect((await t.state()).inbox[0]).toMatchObject({ kind: "check", context: `${CHECK} Now 24pt.` });
+  });
+
+  it("ships straight through when no stage recorded a check", async () => {
+    await t.enqueue("JUS-1", "Coach", "reviewed");
+    await t.tool("factory_stage_done", "th_1", { outcome: "complete", summary: "Built." });
+    await t.tool("factory_stage_done", "th_2", { outcome: "complete", summary: "Review complete." });
+    expect(t.spawned.at(-1)!.title).toBe("JUS-1 · Ship");
+  });
+
+  it("archives a finished ticket's threads so its worktree is removed", async () => {
+    await t.enqueue("JUS-1", "Coach", "small-bug");
+    await t.tool("factory_stage_done", "th_1", { outcome: "complete", summary: "Fixed and merged." });
+    expect(t.archived).toEqual(["th_1"]);
+  });
+});
+
 describe("builder tiers", () => {
   it("builds a ticket on the model set for its plan's tier, and tier 1 or no tier on the base builder", async () => {
     const { config } = await t.state();
@@ -554,10 +640,10 @@ describe("builder tiers", () => {
     });
     await t.harness.behavior.runCli(["sync", sync], { projectId: PROJECT });
     expect(t.spawned.map((thread) => `${thread.title} ${thread.model}`)).toEqual([
-      "JUS-1 · Build gpt-sol",
-      "JUS-2 · Build claude-opus-5-5",
-      "JUS-3 · Build claude-fable-5-2",
-      "JUS-4 · Build gpt-sol",
+      "JUS-1 gpt-sol",
+      "JUS-2 claude-opus-5-5",
+      "JUS-3 claude-fable-5-2",
+      "JUS-4 gpt-sol",
     ]);
     // The tier chooses the builder only; the reviewer is the same for all.
     await t.tool("factory_stage_done", "th_3", { outcome: "complete", summary: "Built." });
@@ -607,7 +693,7 @@ describe("falling back when a model's limit runs out", () => {
     await t.enqueue("JUS-1", "Coach", "reviewed");
     await limit("th_1", Date.now() + 3_600_000);
     await t.enqueue("JUS-2", "Plan", "reviewed");
-    expect(t.spawned.at(-1)).toMatchObject({ title: "JUS-2 · Build", model: "claude-opus-5-5" });
+    expect(t.spawned.at(-1)).toMatchObject({ title: "JUS-2", model: "claude-opus-5-5" });
   });
 
   it("switches a thread once: a limit on the fallback too goes to the founder", async () => {
@@ -653,7 +739,7 @@ describe("falling back when a model's limit runs out", () => {
     expect(t.spawned.at(-1)!.title).toBe("JUS-1 · Review code");
     // A limit on the fallback as well goes to the founder, not back and forth.
     await t.enqueue("JUS-2", "Plan", "reviewed");
-    expect(t.spawned.at(-1)).toMatchObject({ title: "JUS-2 · Build", providerId: "codex" });
+    expect(t.spawned.at(-1)).toMatchObject({ title: "JUS-2", providerId: "codex" });
   });
 
   it("moves a standing agent to a new thread on another provider when its limit runs out", async () => {
@@ -670,7 +756,7 @@ describe("falling back when a model's limit runs out", () => {
     });
     await t.rpc("startAgent", { projectId: PROJECT, agentId: "orchestrator" });
     await limit("th_1");
-    expect(t.spawned.at(-1)).toMatchObject({ id: "th_2", title: "Orchestrator", providerId: "codex", model: "gpt-sol", pinned: true });
+    expect(t.spawned.at(-1)).toMatchObject({ id: "th_2", title: "Planner / strategist", providerId: "codex", model: "gpt-sol", pinned: true });
     expect(t.spawned.at(-1)!.prompt).toContain("bb thread log th_1");
     expect((await t.state()).agents.find((agent) => agent.agentId === "orchestrator")!.threadId).toBe("th_2");
   });

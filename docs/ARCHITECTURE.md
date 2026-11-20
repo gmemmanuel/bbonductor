@@ -74,7 +74,7 @@ Every state except `queued`, `done` and `cancelled` holds its lane and counts to
 
 ## Standing agents
 
-Three by default: the **Orchestrator** plans and queues, **Watch** runs recurring checks and hands what is new to the orchestrator, and the **Harness improver** runs retros and machine cleanup. Scheduled work reaches them through bb Automations running `bb factory prompt <agent> "…"`, which starts the agent if it has no thread. A message to an unstarted standing agent starts it too.
+Four by default: the **Chief of staff** receives every blocked report and founder question from ticket threads and either settles it or asks the founder in plain words; the **Planner / strategist** (id `orchestrator`) plans and queues, **Watch** runs recurring checks and hands what is new to the orchestrator, and the **Harness improver** runs retros and machine cleanup. Scheduled work reaches them through bb Automations running `bb factory prompt <agent> "…"`, which starts the agent if it has no thread. A message to an unstarted standing agent starts it too.
 
 A standing agent is a pinned thread in the project's main checkout, started from the page. Its first prompt names its charter skill and its memory file. "Fresh thread" asks the current thread to write everything it knows to the memory file; when that thread goes idle, a new thread starts from the file and the old one is unpinned.
 
