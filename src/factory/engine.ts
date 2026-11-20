@@ -90,7 +90,27 @@ export interface StageDoneInput {
   /** Author asks for the review to run again after their fixes. */
   rereview?: boolean;
   /** What the founder must try on the branch before it ships. */
-  founderCheck?: string;
+  founderCheck?: string | FounderCheckInput;
+}
+
+export interface FounderCheckInput {
+  before: string;
+  why: string;
+  now: string;
+  account: string;
+  steps: string[];
+}
+
+/** The one shape every "try before it ships" message takes. */
+export function renderFounderCheck(check: FounderCheckInput): string {
+  return [
+    `**Before:** ${check.before.trim()}`,
+    `**Why:** ${check.why.trim()}`,
+    `**Now:** ${check.now.trim()}`,
+    `**Needs your review**`,
+    `Test account: ${check.account.trim()}`,
+    `**Steps to test**\n${check.steps.map((step) => `- ${step.trim()}`).join("\n")}`,
+  ].join("\n\n");
 }
 
 export interface AskInput {
@@ -151,6 +171,7 @@ export class FactoryEngine {
         pipeline,
         tier: input.tier ?? null,
         parked: false,
+        working: false,
         stageIndex: 0,
         status: "queued",
         environmentId: null,
@@ -251,6 +272,7 @@ export class FactoryEngine {
               pipeline,
               tier: entry.tier ?? null,
               parked: entry.parked === true,
+              working: false,
               stageIndex: 0,
               status: "queued",
               environmentId: null,
@@ -276,6 +298,37 @@ export class FactoryEngine {
       await this.scheduleLocked(projectId);
       this.effects.changed();
       return report;
+    });
+  }
+
+  /** The stage thread's turn ended: it is no longer working, whatever comes next. */
+  markResting(threadId: string): Promise<void> {
+    return this.exclusive(async () => {
+      const current = this.currentStage(threadId);
+      if (current === null || !current.item.working) return;
+      this.store.saveItem({ ...current.item, working: false });
+      this.effects.changed();
+    });
+  }
+
+  /** Put a waiting ticket just before another waiting ticket of its lane, or last. */
+  reorderBefore(itemId: string, beforeId: string | null): Promise<Item> {
+    return this.exclusive(async () => {
+      const item = this.requireItem(itemId);
+      if (item.status !== "queued" || item.parked) throw new FactoryError(`${item.key} cannot be reordered.`);
+      const waiting = this.store
+        .listItems(item.projectId)
+        .filter((other) => other.lane === item.lane && other.status === "queued" && !other.parked);
+      const slots = waiting.map((other) => other.position).sort((a, b) => a - b);
+      const rest = waiting.filter((other) => other.id !== item.id);
+      const index = beforeId === null ? rest.length : rest.findIndex((other) => other.id === beforeId);
+      if (index === -1) throw new FactoryError("That ticket is not waiting in the same lane.");
+      rest.splice(index, 0, item);
+      // The lane's waiting slots are reused in the new order, so nothing else moves.
+      rest.forEach((other, position) => this.store.saveItem({ ...other, position: slots[position]! }));
+      await this.scheduleLocked(item.projectId);
+      this.effects.changed();
+      return this.requireItem(itemId);
     });
   }
 
@@ -446,6 +499,7 @@ export class FactoryEngine {
         ...item,
         status: "running",
         nudged: false,
+        working: true,
         environmentId: workspace ?? environmentId,
         threads: { ...item.threads, [stageId]: threadId },
       });
@@ -486,7 +540,7 @@ export class FactoryEngine {
         item: held,
         threadId: item.threads[stages[item.stageIndex] ?? ""] ?? "",
         kind: "check",
-        from: `Ready to try · ${item.key}`,
+        from: `Founder testing · ${item.key}`,
         question: `${item.key} (${item.title}) is built and reviewed. Try it before it ships.`,
         context: item.founderCheck.text,
       });
@@ -503,7 +557,9 @@ export class FactoryEngine {
       const summary = input.summary.trim();
       this.closeEntriesFor(item.id);
 
-      const check = input.founderCheck?.trim();
+      const check = (
+        typeof input.founderCheck === "object" ? renderFounderCheck(input.founderCheck) : (input.founderCheck ?? "")
+      ).trim();
       if (check) item.founderCheck = { text: check, approved: false };
 
       if (input.outcome === "blocked") {
@@ -925,10 +981,16 @@ export class FactoryEngine {
       const current = this.currentStage(threadId);
       if (current === null) return;
       const { status } = current.item;
-      if (status !== "stalled" && status !== "failed") return;
+      if (status !== "stalled" && status !== "failed") {
+        if (!current.item.working) {
+          this.store.saveItem({ ...current.item, working: true });
+          this.effects.changed();
+        }
+        return;
+      }
       // The founder, another agent, or a switch to a fallback model got it
       // moving again.
-      this.store.saveItem({ ...current.item, status: "running", nudged: false });
+      this.store.saveItem({ ...current.item, status: "running", nudged: false, working: true });
       for (const entry of this.store.listInbox({ status: "open", threadId })) {
         if (entry.kind !== "stalled" && entry.kind !== "failed") continue;
         this.store.saveInbox({
@@ -1376,11 +1438,12 @@ export function stageProtocol(item: Item, stageLabel: string, review: boolean): 
     review
       ? `- If the author must change something you cannot land yourself, call factory_stage_done with outcome "changes_requested" and the findings. They go to the author's thread.`
       : `- If a reviewer sends findings to this thread later, address them and call factory_stage_done again.`,
-    `- If this ticket changes anything a user sees, pass founder_check when you call factory_stage_done. It ships only after the founder has tried it, so write it for him: exactly what changed, screen by screen; the branch; how to run it; a dev account that shows the change (one that exists, or one you seeded for this, with how to sign in); and numbered steps with what he should see at each.`,
+    `- If this ticket changes anything a user sees, pass founder_check when you call factory_stage_done. It ships only after the founder has tried it. Fill its fields plainly, for a founder who has not thought about this ticket in days: before (what the user saw), why (why it was changed), now (what the user sees instead), account (a test account and its password, one that exists or one you seeded; set up any data the steps need yourself and do not describe that work), and steps (short bullet steps saying what to do and what he should see). Nothing else: no list of what you verified, no fixes you made, no commit ids, no tool names.`,
     `- If only the founder can decide something, call factory_ask_founder with the situation, the options, and your recommendation, then end your turn. The answer arrives here as a message.`,
     `- If your project's process says something goes back to the planner, call factory_ask_planner with the full handoff. For this ticket the planner is the agent that reviewed its plan; its answer arrives here as a message, and you may go back and forth as often as needed. Never send planner questions to the founder.`,
     `- If you cannot proceed for any other reason, call factory_stage_done with outcome "blocked" and say why.`,
     `- To talk to another agent, call factory_message.`,
     `Do not start the next stage yourself and do not launch your own reviewer: the factory does both.`,
+    `Nobody reads this thread while it runs, so after reporting, end your turn with one line and nothing more: what you did, how many changes you made, and where it went. For example "Plan reviewed, 3 changes, sent to a tier 2 builder." Put everything the next stage needs in the factory_stage_done summary, not in chat. This replaces any longer closing format your project's instructions ask for.`,
   ].join("\n");
 }

@@ -93,6 +93,8 @@ export const itemSchema = z.object({
   /** Review stages already passed once; skipped when the author finishes fixes. */
   passedReviews: z.array(z.string()),
   lastSummary: z.string(),
+  /** The stage's thread is in a turn right now (drives the activity mark). */
+  working: z.boolean().default(false),
   /** Parked by the founder ("Later"): shown in its lane, never started. */
   parked: z.boolean().default(false),
   /** What the founder must try before this ships, and whether he approved it. */

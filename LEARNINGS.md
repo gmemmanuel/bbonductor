@@ -48,6 +48,10 @@ Non-obvious decisions and process knowledge for agents working on the Factory pl
 - **A turn that ends to wait on a background command is not a stop.** A real code review ended its turn with "Local CI is still running" and was reminded, then flagged stalled. The idle handler now skips threads whose DTO reports active background agents or commands. Whether bb always carries `activeBackgroundCommandCount` on the `thread.idle` DTO is unverified; without it the old behaviour applies.
 - **`ship-turn.mjs land` exits 1 with "fetch failed" on a network drop and keeps the turn.** Wrapping it in a pipeline (`| tail`) hides its exit code: a failed run was reported as merged. Check `origin/main` for the commit, and retry on that message rather than trusting the wrapper.
 
+- **Shape founder-facing messages with tool fields, not prose rules.** Asked for "exactly what changed and a test account", agents wrote paragraphs about what they had verified and seeded. `founder_check` is now an object (before, why, now, account, steps) rendered by the engine, so the format cannot drift and no second agent has to rewrite it.
+- **bb exports a `Markdown` component** (`@get-bb/plugin-sdk/app`) that renders like a chat message; use it for any agent-written text on the page. `useBbNavigate().experimental_openFilePreview({ target: { kind: "host", hostId, path }, location: null })` opens a file on the machine from a page.
+- **Stage labels are saved data and appear in thread titles, inbox entries and tests.** Renaming a default needs a `withNewDefaults` rule keyed on the old label.
+
 ## Testing
 
 - **The fake plugin host proves the rules; only real bb proves the wiring.** Run both. The live check starts bb with its own data folder and ports, so it never touches `~/.bb`.

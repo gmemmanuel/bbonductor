@@ -4,6 +4,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { FormEvent, ReactNode } from "react";
 import {
+  Markdown,
   definePluginApp,
   useBbNavigate,
   useRealtime,
@@ -54,13 +55,10 @@ function useFactory() {
   return { rpc, state, error, run, selectProject };
 }
 
-function Section({ title, hint, children }: { title: string; hint?: string; children: ReactNode }) {
+function Section({ title, children }: { title: string; children: ReactNode }) {
   return (
     <section className="space-y-2">
-      <div className="flex items-baseline gap-3">
-        <h2 className="text-sm font-semibold">{title}</h2>
-        {hint === undefined ? null : <p className="text-xs text-muted-foreground">{hint}</p>}
-      </div>
+      <h2 className="text-lg font-semibold tracking-tight">{title}</h2>
       {children}
     </section>
   );
@@ -88,7 +86,7 @@ const KIND_LABEL: Record<InboxEntry["kind"], string> = {
   check: "Try before it ships",
 };
 
-function InboxCard({ entry, rpc, run }: { entry: InboxEntry; rpc: Rpc; run: (work: Promise<unknown>) => void }) {
+function InboxCard({ entry, ticket, rpc, run }: { entry: InboxEntry; ticket: string | null; rpc: Rpc; run: (work: Promise<unknown>) => void }) {
   const navigate = useBbNavigate();
   const [answer, setAnswer] = useState("");
   const send = (event: FormEvent) => {
@@ -101,6 +99,7 @@ function InboxCard({ entry, rpc, run }: { entry: InboxEntry; rpc: Rpc; run: (wor
   return (
     <li className="space-y-2 rounded-lg border border-border bg-card p-4" data-testid="inbox-entry">
       <div className="flex flex-wrap items-center gap-2 text-xs">
+        {ticket === null ? null : <span className="font-mono text-sm font-medium">{ticket}</span>}
         <span
           className={cn(
             "rounded px-1.5 py-0.5 font-medium",
@@ -109,13 +108,11 @@ function InboxCard({ entry, rpc, run }: { entry: InboxEntry; rpc: Rpc; run: (wor
         >
           {KIND_LABEL[entry.kind]}
         </span>
-        <span className="font-medium">{entry.from}</span>
+        <span className="text-muted-foreground">{ticket === null ? entry.from : entry.from.replace(` · ${ticket}`, "")}</span>
         <span className="text-muted-foreground">{new Date(entry.createdAt).toLocaleString()}</span>
       </div>
       <p className="text-sm font-medium">{entry.question}</p>
-      {entry.context === "" ? null : (
-        <p className="whitespace-pre-wrap text-sm text-muted-foreground">{entry.context}</p>
-      )}
+      {entry.context === "" ? null : <Markdown content={entry.context} className="text-sm" />}
       {entry.options.length === 0 ? null : (
         <div className="flex flex-col items-stretch gap-1.5 sm:items-start">
           {entry.options.map((option, index) => (
@@ -132,10 +129,7 @@ function InboxCard({ entry, rpc, run }: { entry: InboxEntry; rpc: Rpc; run: (wor
         </div>
       )}
       {entry.recommendation === "" ? null : (
-        <p className="text-sm">
-          <span className="font-medium">Recommendation: </span>
-          {entry.recommendation}
-        </p>
+        <Markdown content={`**Recommendation:** ${entry.recommendation}`} className="text-sm" />
       )}
       <form onSubmit={send} className="flex flex-wrap items-center gap-2">
         {entry.kind === "interaction" ? null : (
@@ -193,7 +187,7 @@ const STATUS_STYLE: Record<Item["status"], string> = {
 const STATUS_LABEL: Record<Item["status"], string> = {
   queued: "Queued",
   running: "Running",
-  "needs-founder": "Needs you",
+  "needs-founder": "Waiting for you",
   "with-planner": "With plan reviewer",
   triage: "With chief of staff",
   returned: "Returned to planner",
@@ -204,12 +198,18 @@ const STATUS_LABEL: Record<Item["status"], string> = {
   cancelled: "Cancelled",
 };
 
-function Ticket({ item, config, rpc, run, canMoveUp = false, canMoveDown = false }: { item: Item; config: Config; rpc: Rpc; run: (work: Promise<unknown>) => void; canMoveUp?: boolean; canMoveDown?: boolean }) {
+function Ticket({ item, config, rpc, run, canMoveUp = false, canMoveDown = false, draggable = false }: { item: Item; config: Config; rpc: Rpc; run: (work: Promise<unknown>) => void; canMoveUp?: boolean; canMoveDown?: boolean; draggable?: boolean }) {
   const navigate = useBbNavigate();
+  const [dropTarget, setDropTarget] = useState(false);
   const stages = config.pipelines[item.pipeline] ?? [];
   const stageId = stages[item.stageIndex];
   const stageLabel = stageId === undefined ? "" : (config.stages[stageId]?.label ?? stageId);
   const waiting = item.status === "queued";
+  const forFounder = item.status === "needs-founder";
+  // A ticket held before ship for the founder's check is in its own stage.
+  const shown = item.status === "done" ? "Merged" : forFounder && item.founderCheck !== null && !item.founderCheck.approved ? "Founder testing" : stageLabel;
+  const note =
+    item.status === "running" || waiting || item.status === "done" || forFounder ? "" : STATUS_LABEL[item.status];
   // The thread doing the work now, the planner it is waiting on, or for a
   // finished ticket the last thread that worked on it.
   const threadId =
@@ -217,15 +217,38 @@ function Ticket({ item, config, rpc, run, canMoveUp = false, canMoveDown = false
     (stageId === undefined ? undefined : item.threads[stageId]) ??
     stages.map((id) => item.threads[id]).filter((id) => id !== undefined).at(-1);
   return (
-    <div className="space-y-1 rounded-md border border-border bg-card p-2.5 text-sm" data-testid="ticket">
+    <div
+      className={cn("space-y-1 rounded-md border border-border bg-card p-2.5 text-sm", draggable && "cursor-grab", dropTarget && "border-foreground")}
+      data-testid="ticket"
+      draggable={draggable}
+      onDragStart={(event) => {
+        event.dataTransfer.setData("text/factory-ticket", `${item.lane}|${item.id}`);
+        event.dataTransfer.effectAllowed = "move";
+      }}
+      onDragOver={(event) => {
+        if (!draggable) return;
+        event.preventDefault();
+        setDropTarget(true);
+      }}
+      onDragLeave={() => setDropTarget(false)}
+      onDrop={(event) => {
+        setDropTarget(false);
+        const [lane, id] = event.dataTransfer.getData("text/factory-ticket").split("|");
+        if (!draggable || lane !== item.lane || id === undefined || id === item.id) return;
+        event.preventDefault();
+        run(rpc.call("reorderBefore", { itemId: id, beforeId: item.id }));
+      }}
+    >
       <div className="flex items-center gap-2">
+        {item.working ? (
+          <span className="relative flex size-2 shrink-0" aria-label="Working now" data-testid="working">
+            <span className="absolute inline-flex size-full animate-ping rounded-full bg-emerald-500 opacity-75" />
+            <span className="relative inline-flex size-2 rounded-full bg-emerald-500" />
+          </span>
+        ) : null}
         <span className="font-mono font-medium">{item.key}</span>
-        <span className={cn("min-w-0 flex-1 truncate text-xs font-medium", STATUS_STYLE[item.status])}>
-          {item.status === "done"
-            ? "Merged"
-            : item.status === "running" || waiting
-            ? stageLabel
-            : `${STATUS_LABEL[item.status]}${stageLabel === "" ? "" : ` · ${stageLabel}`}`}
+        <span className={cn("min-w-0 flex-1 truncate text-xs font-medium", note === "" ? "text-muted-foreground" : STATUS_STYLE[item.status])}>
+          {note === "" ? shown : `${shown} · ${note}`}
         </span>
         {item.parked ? (
           <span className="shrink-0 rounded-full bg-secondary px-2 py-0.5 text-xs text-secondary-foreground" data-testid="later">
@@ -241,19 +264,22 @@ function Ticket({ item, config, rpc, run, canMoveUp = false, canMoveDown = false
       <p className="text-muted-foreground">{item.title}</p>
       {waiting ? (
         canMoveUp || canMoveDown ? (
-          <div className="flex items-center gap-1">
-            <Button variant="outline" size="sm" className="h-7 w-8 px-0" aria-label={`Move ${item.key} earlier`} disabled={!canMoveUp} onClick={() => run(rpc.call("reorder", { itemId: item.id, direction: "up" }))}>
+          <div className="flex items-center justify-end gap-0.5">
+            <button type="button" className="rounded px-1 text-xs leading-4 text-muted-foreground hover:text-foreground disabled:opacity-30" aria-label={`Move ${item.key} earlier`} disabled={!canMoveUp} onClick={() => run(rpc.call("reorder", { itemId: item.id, direction: "up" }))}>
               ↑
-            </Button>
-            <Button variant="outline" size="sm" className="h-7 w-8 px-0" aria-label={`Move ${item.key} later`} disabled={!canMoveDown} onClick={() => run(rpc.call("reorder", { itemId: item.id, direction: "down" }))}>
+            </button>
+            <button type="button" className="rounded px-1 text-xs leading-4 text-muted-foreground hover:text-foreground disabled:opacity-30" aria-label={`Move ${item.key} later`} disabled={!canMoveDown} onClick={() => run(rpc.call("reorder", { itemId: item.id, direction: "down" }))}>
               ↓
-            </Button>
+            </button>
           </div>
         ) : null
       ) : threadId === undefined ? null : (
-        <Button variant="outline" size="sm" className="h-7 px-2" onClick={() => navigate.toThread(threadId)}>
-          Open thread
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button variant="outline" size="sm" className="h-7 px-2" onClick={() => navigate.toThread(threadId)}>
+            Open thread
+          </Button>
+          {forFounder ? <span className="text-xs font-medium text-destructive">Waiting for you</span> : null}
+        </div>
       )}
     </div>
   );
@@ -263,88 +289,58 @@ function Swimlanes({ state, rpc, run }: { state: FactoryState; rpc: Rpc; run: (w
   const open = state.items.filter((item) => item.status !== "done" && item.status !== "archived" && item.status !== "cancelled");
   // Merged, with a workspace the founder has not archived yet.
   const finished = state.items.filter((item) => item.status === "done");
-  const lanes = [...new Set(open.map((item) => item.lane))];
-  const doneLane = finished.length === 0 ? null : (
-    <div className="space-y-2">
-      {finished.map((item) => (
-        <Ticket key={item.id} item={item} config={state.config} rpc={rpc} run={run} />
-      ))}
-    </div>
-  );
+  const lanes = [...new Set([...open, ...finished].map((item) => item.lane))].sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
   // Only waiting tickets move, and only among the waiting tickets of their lane.
   const moves = (item: Item) => {
     const queue = open.filter((other) => other.lane === item.lane && other.status === "queued" && !other.parked);
-    if (item.parked) return { canMoveUp: false, canMoveDown: false };
     const index = queue.findIndex((other) => other.id === item.id);
-    return { canMoveUp: index > 0, canMoveDown: index !== -1 && index < queue.length - 1 };
+    if (item.parked || index === -1) return { canMoveUp: false, canMoveDown: false, draggable: false };
+    return { canMoveUp: index > 0, canMoveDown: index < queue.length - 1, draggable: queue.length > 1 };
   };
-  if (lanes.length === 0 && finished.length === 0) {
+  const card = (item: Item) => <Ticket key={item.id} item={item} config={state.config} rpc={rpc} run={run} {...moves(item)} />;
+  if (lanes.length === 0) {
     return <Empty>No tickets yet. Lanes fill from the swimlane schedule.</Empty>;
   }
   return (
     <>
-    {/* Phones: one card per lane, tickets stacked in order. */}
-    <div className="space-y-3 md:hidden">
-      {lanes.map((lane) => (
-        <div key={lane} className="space-y-2 rounded-lg border border-border p-3" data-testid="lane-card">
-          <div className="text-sm font-medium">{lane}</div>
-          {open
-            .filter((item) => item.lane === lane)
-            .map((item) => (
-              <Ticket key={item.id} item={item} config={state.config} rpc={rpc} run={run} {...moves(item)} />
-            ))}
-        </div>
-      ))}
-      {doneLane === null ? null : (
-        <div className="space-y-2 rounded-lg border border-border p-3" data-testid="done-lane">
-          <div className="text-sm font-medium">Done</div>
-          <p className="text-xs text-muted-foreground">Merged. Archive a workspace in the sidebar to clear it from here.</p>
-          {doneLane}
-        </div>
-      )}
-    </div>
-    <div className="hidden overflow-x-auto rounded-lg border border-border md:block">
-      <table className="w-full min-w-[640px] border-collapse text-left align-top">
-        <thead className="bg-secondary/40 text-xs text-muted-foreground">
-          <tr>
-            <th className="w-36 px-3 py-2 font-medium">Track</th>
-            <th className="w-[42%] px-3 py-2 font-medium">Right now</th>
-            <th className="px-3 py-2 font-medium">Next up</th>
-          </tr>
-        </thead>
-        <tbody>
-          {lanes.map((lane) => {
-            const [head, ...rest] = open.filter((item) => item.lane === lane);
-            return (
-              <tr key={lane} className="border-t border-border align-top" data-testid="lane">
-                <td className="px-3 py-3 text-sm font-medium">{lane}</td>
-                <td className="px-3 py-3">
-                  {head === undefined ? null : <Ticket item={head} config={state.config} rpc={rpc} run={run} {...moves(head)} />}
-                </td>
-                <td className="space-y-2 px-3 py-3">
-                  {rest.map((item) => (
-                    <Ticket key={item.id} item={item} config={state.config} rpc={rpc} run={run} {...moves(item)} />
-                  ))}
-                </td>
-              </tr>
-            );
-          })}
-        </tbody>
-      </table>
-      {doneLane === null ? null : (
-        <div className="grid grid-cols-[9rem_1fr] border-t border-border" data-testid="done-lane">
-          <div className="px-3 py-3 text-sm font-medium">
-            Done
-            <p className="mt-1 text-xs font-normal text-muted-foreground">Merged. Archive a workspace in the sidebar to clear it.</p>
+      {/* Phones: one card per lane, tickets stacked in order. */}
+      <div className="space-y-3 md:hidden">
+        {lanes.map((lane) => (
+          <div key={lane} className="space-y-2 rounded-lg border border-border p-3" data-testid="lane-card">
+            <div className="text-sm font-medium">{lane}</div>
+            {open.filter((item) => item.lane === lane).map(card)}
+            {finished.some((item) => item.lane === lane) ? <div className="pt-1 text-xs font-medium text-muted-foreground">Done</div> : null}
+            {finished.filter((item) => item.lane === lane).map(card)}
           </div>
-          <div className="grid gap-2 px-3 py-3 lg:grid-cols-2">
-            {finished.map((item) => (
-              <Ticket key={item.id} item={item} config={state.config} rpc={rpc} run={run} />
-            ))}
-          </div>
-        </div>
-      )}
-    </div>
+        ))}
+      </div>
+      <div className="hidden overflow-x-auto rounded-lg border border-border md:block">
+        <table className="w-full min-w-[760px] table-fixed border-collapse text-left align-top">
+          <thead className="bg-secondary/40 text-xs text-muted-foreground">
+            <tr>
+              <th className="w-24 px-3 py-2 font-medium">Track</th>
+              <th className="px-3 py-2 font-medium">Right now</th>
+              <th className="px-3 py-2 font-medium">Next up</th>
+              <th className="px-3 py-2 font-medium">Done</th>
+            </tr>
+          </thead>
+          <tbody>
+            {lanes.map((lane) => {
+              const inLane = open.filter((item) => item.lane === lane);
+              // "Right now" is the ticket in flight; a lane with only waiting tickets has none.
+              const head = inLane.find((item) => item.status !== "queued");
+              return (
+                <tr key={lane} className="border-t border-border align-top" data-testid="lane">
+                  <td className="px-3 py-3 text-sm font-medium">{lane}</td>
+                  <td className="px-3 py-3">{head === undefined ? null : card(head)}</td>
+                  <td className="space-y-2 px-3 py-3">{inLane.filter((item) => item !== head).map(card)}</td>
+                  <td className="space-y-2 px-3 py-3" data-testid="done-column">{finished.filter((item) => item.lane === lane).map(card)}</td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
     </>
   );
 }
@@ -362,13 +358,6 @@ function Roles({ state, rpc, run }: { state: FactoryState; rpc: Rpc; run: (work:
   const save = (config: Config) => run(rpc.call("saveConfig", { projectId, config }));
   const setRole = (id: string, patch: Partial<Role>) =>
     save({ ...state.config, roles: { ...state.config.roles, [id]: { ...state.config.roles[id]!, ...patch } } });
-  const usedBy = (roleId: string) => [
-    ...Object.values(state.config.stages).filter((stage) => stage.role === roleId).map((stage) => stage.label),
-    ...Object.values(state.config.stages).flatMap((stage) =>
-      Object.entries(stage.tierRoles).filter(([, role]) => role === roleId).map(([tier]) => `${stage.label} for tier ${tier} plans`),
-    ),
-    ...Object.values(state.config.agents).filter((agent) => agent.role === roleId).map((agent) => agent.label),
-  ];
   return (
     <div className="space-y-3">
       <div className="overflow-x-auto rounded-lg border border-border">
@@ -392,7 +381,6 @@ function Roles({ state, rpc, run }: { state: FactoryState; rpc: Rpc; run: (work:
                 <tr key={id} className="border-t border-border" data-testid="role">
                   <td className="px-3 py-2">
                     <div className="font-medium">{role.label}</div>
-                    <div className="text-xs text-muted-foreground">{usedBy(id).join(", ")}</div>
                   </td>
                   <td className="px-3 py-2">
                     <select
@@ -486,6 +474,7 @@ function Agents({ state, rpc, run }: { state: FactoryState; rpc: Rpc; run: (work
       {Object.entries(state.config.agents).map(([agentId, agent]) => {
         const live = state.agents.find((candidate) => candidate.agentId === agentId);
         const threadId = live?.threadId ?? null;
+        const memory = state.memoryFiles.find((file) => file.agentId === agentId);
         return (
           <li key={agentId} className="flex flex-wrap items-center gap-2 px-3 py-2.5 text-sm" data-testid="agent">
             <div className="min-w-40 flex-1">
@@ -496,10 +485,17 @@ function Agents({ state, rpc, run }: { state: FactoryState; rpc: Rpc; run: (work
                   : live?.rotating === true
                     ? "Writing its handoff; a fresh thread starts when it finishes"
                     : `Running since ${new Date(live?.startedAt ?? 0).toLocaleDateString()}`}
-                {" · memory in "}
-                <code>{agent.memoryPath}</code>
               </div>
             </div>
+            {memory === undefined ? null : (
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={() => void navigate.experimental_openFilePreview({ target: { kind: "host", hostId: memory.hostId, path: memory.path }, location: null })}
+              >
+                Memory
+              </Button>
+            )}
             {threadId === null ? (
               <Button size="sm" onClick={() => run(rpc.call("startAgent", { projectId, agentId }))}>
                 Start
@@ -555,13 +551,13 @@ function FactoryPage() {
             {error}
           </p>
         )}
-        <Section title={`Inbox${inbox.length === 0 ? "" : ` (${inbox.length})`}`} hint="Decisions only you can make, from every project.">
+        <Section title={`Inbox${inbox.length === 0 ? "" : ` (${inbox.length})`}`}>
           {inbox.length === 0 ? (
             <Empty>Nothing needs you.</Empty>
           ) : (
             <ul className="space-y-2">
               {inbox.map((entry) => (
-                <InboxCard key={entry.id} entry={entry} rpc={rpc} run={run} />
+                <InboxCard key={entry.id} entry={entry} ticket={state.items.find((item) => item.id === entry.itemId)?.key ?? null} rpc={rpc} run={run} />
               ))}
             </ul>
           )}
@@ -570,13 +566,13 @@ function FactoryPage() {
           <Empty>Add a project to bb to start a factory.</Empty>
         ) : (
           <>
-            <Section title="Swimlanes" hint="One ticket in flight per lane. Use the arrows to reorder what is next.">
+            <Section title="Swimlanes">
               <Swimlanes state={state} rpc={rpc} run={run} />
             </Section>
-            <Section title="Standing agents" hint="Long-lived threads in the main checkout, each with a memory file in the repo.">
+            <Section title="Standing agents">
               <Agents state={state} rpc={rpc} run={run} />
             </Section>
-            <Section title="Who plays each role" hint="Applies to the next stage that starts. Change it whenever your limits change.">
+            <Section title="Who plays each role">
               <Roles state={state} rpc={rpc} run={run} />
             </Section>
           </>
