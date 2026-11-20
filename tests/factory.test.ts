@@ -430,6 +430,24 @@ describe("founder inbox", () => {
     expect(arrivals()).toBe(1);
   });
 
+  it("files a request to try something already shipped as a test, not a decision", async () => {
+    await t.enqueue("JUS-1", "Coach", "small-bug");
+    await t.tool("factory_stage_done", "th_1", { outcome: "complete", summary: "Fixed and merged." });
+    await t.tool("factory_ask_founder", "th_1", { question: "Try the skip button (already on main)", context: "**Steps to test**", testing: true });
+    const entry = (await t.state()).inbox[0]!;
+    expect(entry).toMatchObject({ kind: "test", threadId: "th_1" });
+    // His notes still go to the thread that built it.
+    await t.rpc("answer", { entryId: entry.id, answer: "Undo is missing." });
+    expect(t.sent.at(-1)).toMatchObject({ threadId: "th_1" });
+
+    // An entry filed under the wrong kind can be corrected.
+    await t.tool("factory_ask_founder", "th_1", { question: "Try it again" });
+    const wrong = (await t.state()).inbox[0]!;
+    expect(wrong.kind).toBe("question");
+    await t.harness.behavior.runCli(["retag", wrong.id, "test"], { projectId: PROJECT });
+    expect((await t.state()).inbox[0]!.kind).toBe("test");
+  });
+
   it("lets a standing agent ask the founder directly", async () => {
     const planner = await t.rpc<{ threadId: string }>("startAgent", { projectId: PROJECT, agentId: "orchestrator" });
     await t.tool("factory_ask_founder", planner.threadId, { question: "Create a ticket for the new error class?" });

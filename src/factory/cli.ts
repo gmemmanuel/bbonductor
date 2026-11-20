@@ -19,6 +19,7 @@ export const CLI_COMMANDS = [
   { name: "message", summary: "Message an agent or a ticket's thread", usage: "bb factory message <agent|KEY|KEY:stage> <text…>" },
   { name: "inbox", summary: "List open founder decisions", usage: "bb factory inbox [--json]" },
   { name: "approve", summary: "Approve a ticket the founder has tried, so it ships", usage: "bb factory approve <entry-id>" },
+  { name: "retag", summary: "Correct an inbox entry's kind", usage: "bb factory retag <entry-id> question|test" },
   { name: "answer", summary: "Answer an inbox entry", usage: "bb factory answer <entry-id> <text…>" },
   { name: "agent", summary: "Start or rotate a standing agent", usage: "bb factory agent start|rotate <agent-id> [--project <id>]" },
   { name: "prompt", summary: "Send a standing agent a prompt, starting it if needed (for automations)", usage: "bb factory prompt <agent-id> <text…> [--project <id>]" },
@@ -31,7 +32,7 @@ interface Parsed {
   flags: Map<string, string[]>;
 }
 
-const BOOLEAN_FLAGS = new Set(["json", "rereview", "help"]);
+const BOOLEAN_FLAGS = new Set(["json", "rereview", "help", "testing"]);
 
 function parse(argv: string[]): Parsed {
   const positionals: string[] = [];
@@ -212,6 +213,7 @@ export async function runCli(
           options: flags.get("option") ?? [],
           recommendation: flag("recommend"),
           about: flag("about"),
+          testing: flags.has("testing"),
         });
         return ok(entry, entry.id === "" ? "Sent to the chief of staff. The reply will arrive in this thread. End your turn." : "Asked. The answer will arrive in the thread it concerns. End your turn.");
       }
@@ -239,6 +241,12 @@ export async function runCli(
         if (rest[0] === undefined) break;
         const item = await engine.approveCheck(rest[0]);
         return ok(item, `${item.key} approved (${item.status}).`);
+      }
+      case "retag": {
+        const [id, kind] = rest;
+        if (id === undefined || (kind !== "question" && kind !== "test")) break;
+        const entry = await engine.retag(id, kind);
+        return ok(entry, `Now shown as ${kind}.`);
       }
       case "answer": {
         const [id, ...text] = rest;

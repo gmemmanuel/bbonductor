@@ -325,6 +325,7 @@ export default async function plugin(bb: BbPluginApi) {
       context: z.string().max(4000).optional().describe("The situation: who is affected, where, and what happens today."),
       options: z.array(z.string().max(600)).max(4).optional().describe("Each option and what the user would see."),
       recommendation: z.string().max(1000).optional().describe("Which option you recommend and why."),
+      testing: z.boolean().optional().describe("Set true when this is not a decision but something already shipped that the founder should try."),
       about: z.string().max(80).optional().describe('Chief of staff only: the ticket thread this is about, such as "JUS-12:build". The founder\'s answer goes to that thread.'),
     }),
     execute: (input, { threadId }) =>

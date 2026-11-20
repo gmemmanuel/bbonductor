@@ -52,6 +52,8 @@ Non-obvious decisions and process knowledge for agents working on the Factory pl
 - **bb exports a `Markdown` component** (`@get-bb/plugin-sdk/app`) that renders like a chat message; use it for any agent-written text on the page. `useBbNavigate().experimental_openFilePreview({ target: { kind: "host", hostId, path }, location: null })` opens a file on the machine from a page.
 - **Stage labels are saved data and appear in thread titles, inbox entries and tests.** Renaming a default needs a `withNewDefaults` rule keyed on the old label.
 
+- **An inbox entry's label comes from the channel it used, not from what it says.** Asked to send test steps for tickets that had already shipped, builders used `factory_ask_founder`, the only channel a finished ticket has, and the founder saw test steps labelled "Decision". Every distinct thing the founder is asked to do needs its own kind (`question`, `check`, `test`), or the label lies.
+
 ## Testing
 
 - **The fake plugin host proves the rules; only real bb proves the wiring.** Run both. The live check starts bb with its own data folder and ports, so it never touches `~/.bb`.
