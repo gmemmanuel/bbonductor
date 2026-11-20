@@ -45,8 +45,6 @@ export interface Effects {
   spawn(request: SpawnRequest): Promise<{ threadId: string; environmentId: string | null }>;
   send(threadId: string, text: string, senderThreadId?: string): Promise<void>;
   retry(threadId: string): Promise<void>;
-  /** Archive a finished ticket's thread so bb can remove its worktree. Must not throw. */
-  archive(threadId: string): void;
   /** Change the model an existing thread runs on. */
   switchModel(threadId: string, model: string, reasoningLevel: string): Promise<void>;
   /** The worktree a thread runs in; null until bb has provisioned it. */
@@ -71,7 +69,7 @@ const ACTIVE = new Set<Item["status"]>([
   "stalled",
   "failed",
 ]);
-const CLOSED = new Set<Item["status"]>(["done", "cancelled"]);
+const CLOSED = new Set<Item["status"]>(["done", "archived", "cancelled"]);
 
 export class FactoryError extends Error {}
 
@@ -152,6 +150,7 @@ export class FactoryEngine {
         position: siblings.reduce((max, s) => Math.max(max, s.position), 0) + 1,
         pipeline,
         tier: input.tier ?? null,
+        parked: false,
         stageIndex: 0,
         status: "queued",
         environmentId: null,
@@ -201,7 +200,7 @@ export class FactoryEngine {
    */
   syncLanes(
     projectId: string,
-    lanes: { name: string; items: { key: string; title: string; brief?: string; pipeline?: string; tier?: number }[] }[],
+    lanes: { name: string; items: { key: string; title: string; brief?: string; pipeline?: string; tier?: number; parked?: boolean }[] }[],
     originThreadId: string | null,
   ): Promise<string[]> {
     return this.exclusive(async () => {
@@ -228,12 +227,16 @@ export class FactoryEngine {
             report.push(`${key}: already finished here`);
           } else if (existing !== null && existing.status !== "cancelled") {
             // A plan's tier can change while its ticket waits; follow it until the build starts.
-            const tier = entry.tier ?? existing.tier;
-            const retiered = tier !== existing.tier && existing.status === "queued";
-            if (retiered) this.store.saveItem({ ...existing, tier });
+            // While a ticket waits, it follows the schedule: its tier, where it
+            // starts, and whether the founder has parked it.
+            const waiting =
+              existing.status === "queued"
+                ? { ...existing, tier: entry.tier ?? existing.tier, pipeline, parked: entry.parked === true, title: entry.title.trim() || existing.title }
+                : existing;
+            if (waiting !== existing) this.store.saveItem(waiting);
             if (existing.lane === laneName) continue;
             const position = siblings().reduce((max, item) => Math.max(max, item.position), 0) + 1;
-            this.store.saveItem({ ...existing, tier: retiered ? tier : existing.tier, lane: laneName, position });
+            this.store.saveItem({ ...waiting, lane: laneName, position });
             report.push(`${key}: moved from "${existing.lane}" to "${laneName}"`);
           } else {
             const now = Date.now();
@@ -247,6 +250,7 @@ export class FactoryEngine {
               position: siblings().reduce((max, item) => Math.max(max, item.position), 0) + 1,
               pipeline,
               tier: entry.tier ?? null,
+              parked: entry.parked === true,
               stageIndex: 0,
               status: "queued",
               environmentId: null,
@@ -282,7 +286,7 @@ export class FactoryEngine {
       if (item.status !== "queued") throw new FactoryError(`${item.key} has started; only waiting tickets can be reordered.`);
       const waiting = this.store
         .listItems(item.projectId)
-        .filter((other) => other.lane === item.lane && other.status === "queued");
+        .filter((other) => other.lane === item.lane && other.status === "queued" && !other.parked);
       const index = waiting.findIndex((other) => other.id === item.id);
       const neighbour = waiting[index + (direction === "up" ? -1 : 1)];
       if (neighbour === undefined) return item;
@@ -375,7 +379,8 @@ export class FactoryEngine {
     // lanes are made (the sequencing skill caps them), not here.
     const lanes = [...new Set(items.map((item) => item.lane))];
     for (const lane of lanes) {
-      const head = items.find((item) => item.lane === lane && !CLOSED.has(item.status));
+      // Parked ("Later") tickets are never started and never hold up the lane.
+      const head = items.find((item) => item.lane === lane && !CLOSED.has(item.status) && !item.parked);
       if (head === undefined || head.status !== "queued") continue;
       await this.runStage(head, config);
     }
@@ -467,9 +472,8 @@ export class FactoryEngine {
     if (index >= stages.length) {
       const done = this.store.saveItem({ ...item, status: "done", stageIndex: stages.length });
       this.effects.log(`${item.key} finished its pipeline.`);
-      // Its worktree goes with its threads: bb removes a worktree once every
-      // thread in it is archived.
-      for (const thread of Object.values(item.threads)) this.effects.archive(thread);
+      // Its threads stay until the founder archives the workspace himself; it
+      // shows under Done until then (see onGone).
       await this.scheduleLocked(item.projectId);
       return done;
     }
@@ -1040,6 +1044,16 @@ export class FactoryEngine {
   /** A stage thread was archived or deleted out from under its ticket. */
   onGone(threadId: string): Promise<void> {
     return this.exclusive(async () => {
+      // A finished ticket stays under Done until its workspace is archived:
+      // when its last thread is gone, it leaves the board.
+      const binding = this.store.getBinding(threadId);
+      const finished = binding?.itemId == null ? null : this.store.getItem(binding.itemId);
+      if (finished !== null && finished.status === "done") {
+        const threads = Object.fromEntries(Object.entries(finished.threads).filter(([, id]) => id !== threadId));
+        this.store.saveItem({ ...finished, threads, status: Object.keys(threads).length === 0 ? "archived" : "done" });
+        this.effects.changed();
+        return;
+      }
       const current = this.currentStage(threadId);
       if (current === null || !ACTIVE.has(current.item.status)) return;
       const { item, stageId } = current;

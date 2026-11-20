@@ -608,10 +608,39 @@ describe("the founder tries a visible change before it ships", () => {
     expect(t.spawned.at(-1)!.title).toBe("JUS-1 · Ship");
   });
 
-  it("archives a finished ticket's threads so its worktree is removed", async () => {
-    await t.enqueue("JUS-1", "Coach", "small-bug");
-    await t.tool("factory_stage_done", "th_1", { outcome: "complete", summary: "Fixed and merged." });
-    expect(t.archived).toEqual(["th_1"]);
+  it("keeps a merged ticket under Done until the founder archives its workspace, and never archives for him", async () => {
+    await t.enqueue("JUS-1", "Coach", "reviewed");
+    await t.tool("factory_stage_done", "th_1", { outcome: "complete", summary: "Built." });
+    await t.tool("factory_stage_done", "th_2", { outcome: "complete", summary: "Reviewed." });
+    await t.tool("factory_stage_done", "th_3", { outcome: "complete", summary: "Merged." });
+    expect(t.archived).toEqual([]);
+    expect((await t.item("JUS-1")).status).toBe("done");
+
+    await t.emit("thread.archived", "th_1");
+    await t.emit("thread.archived", "th_2");
+    expect((await t.item("JUS-1")).status).toBe("done");
+    await t.emit("thread.archived", "th_3");
+    expect((await t.item("JUS-1")).status).toBe("archived");
+    expect((await t.state()).inbox).toEqual([]);
+  });
+
+  it("shows a ticket parked for later in its lane and never starts it", async () => {
+    const sync = (items: unknown[]) =>
+      t.harness.behavior.runCli(["sync", JSON.stringify({ lanes: [{ name: "Coach", items }] })], { projectId: PROJECT });
+    await sync([
+      { key: "JUS-1", title: "Parked", pipeline: "planned", parked: true },
+      { key: "JUS-2", title: "Ready", pipeline: "small-bug" },
+    ]);
+    // The parked ticket does not hold the lane up.
+    expect(await t.item("JUS-1")).toMatchObject({ status: "queued", parked: true });
+    expect((await t.item("JUS-2")).status).toBe("running");
+    await t.tool("factory_stage_done", "th_1", { outcome: "complete", summary: "Fixed." });
+    expect(t.spawned).toHaveLength(1);
+
+    // The founder removes the Later label: the next schedule starts it.
+    await sync([{ key: "JUS-1", title: "Parked", pipeline: "reviewed" }]);
+    expect(t.spawned.at(-1)!.title).toBe("JUS-1");
+    expect(await t.item("JUS-1")).toMatchObject({ status: "running", parked: false, pipeline: "reviewed" });
   });
 });
 

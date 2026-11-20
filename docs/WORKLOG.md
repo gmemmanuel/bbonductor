@@ -25,6 +25,13 @@ In rough order.
 
 ## Log
 
+### 20 November 2026 (third session): Done lane, Later, more lanes in bb
+
+- The founder authorised merging this repo's pull requests and updating his bb without asking.
+- Removed auto-archive (added that morning, not yet installed). A merged ticket shows under Done until all its threads are archived or deleted, then becomes `archived` and leaves the board.
+- `parked` tickets: sent by the schedule for Later tickets, shown with a pill, never started, never holding their lane. A waiting ticket now follows the schedule's pipeline, tier, title and parked state.
+- **Checked:** 51 behaviour tests, 29 live checks.
+
 ### 20 November 2026 (second session): what the first night showed
 
 - **Overnight:** lane 4 shipped three tickets end to end on real agents (plan review, build, code review, ship) and stopped on the fourth with a "blocked" entry the founder could not act on. All three were visible changes and shipped without him trying them.

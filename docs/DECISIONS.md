@@ -11,6 +11,18 @@ What Gideon has decided about the factory, newest first. Check here before re-op
 
 ---
 
+## 20 November 2026 (later)
+
+**Agents may merge this repo's pull requests and update the founder's bb without asking.** (Founder)
+"You can ship to bb without my approval." Covers the Factory plugin only. Verify with both suites first, merge, then `bb plugin update bbonductor --yes`.
+
+**The founder archives workspaces himself; the factory never does.** (Founder)
+"Let's make sure that threads don't auto archive, I want to archive them." Replaces "A finished ticket's threads are archived" below, decided earlier the same day.
+
+**A merged ticket stays in a Done lane until its workspace is archived, then leaves the board.** (Founder)
+
+**Tickets marked Later show in their lane in bb and never start on their own.** (Founder)
+
 ## 20 November 2026 (after the first night)
 
 **A chief of staff stands between ticket threads and the founder.** (Founder)

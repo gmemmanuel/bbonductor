@@ -187,6 +187,7 @@ const STATUS_STYLE: Record<Item["status"], string> = {
   stalled: "text-destructive",
   failed: "text-destructive",
   done: "text-muted-foreground",
+  archived: "text-muted-foreground",
   cancelled: "text-muted-foreground",
 };
 const STATUS_LABEL: Record<Item["status"], string> = {
@@ -199,6 +200,7 @@ const STATUS_LABEL: Record<Item["status"], string> = {
   stalled: "Stalled",
   failed: "Failed",
   done: "Done",
+  archived: "Archived",
   cancelled: "Cancelled",
 };
 
@@ -208,17 +210,28 @@ function Ticket({ item, config, rpc, run, canMoveUp = false, canMoveDown = false
   const stageId = stages[item.stageIndex];
   const stageLabel = stageId === undefined ? "" : (config.stages[stageId]?.label ?? stageId);
   const waiting = item.status === "queued";
-  // The thread doing the work now, or the planner it is waiting on.
-  const threadId = item.consult?.threadId ?? (stageId === undefined ? undefined : item.threads[stageId]);
+  // The thread doing the work now, the planner it is waiting on, or for a
+  // finished ticket the last thread that worked on it.
+  const threadId =
+    item.consult?.threadId ??
+    (stageId === undefined ? undefined : item.threads[stageId]) ??
+    stages.map((id) => item.threads[id]).filter((id) => id !== undefined).at(-1);
   return (
     <div className="space-y-1 rounded-md border border-border bg-card p-2.5 text-sm" data-testid="ticket">
       <div className="flex items-center gap-2">
         <span className="font-mono font-medium">{item.key}</span>
         <span className={cn("min-w-0 flex-1 truncate text-xs font-medium", STATUS_STYLE[item.status])}>
-          {item.status === "running" || waiting
+          {item.status === "done"
+            ? "Merged"
+            : item.status === "running" || waiting
             ? stageLabel
             : `${STATUS_LABEL[item.status]}${stageLabel === "" ? "" : ` · ${stageLabel}`}`}
         </span>
+        {item.parked ? (
+          <span className="shrink-0 rounded-full bg-secondary px-2 py-0.5 text-xs text-secondary-foreground" data-testid="later">
+            Later
+          </span>
+        ) : null}
         {item.tier === null ? null : (
           <span className="shrink-0 rounded-full border border-border px-2 py-0.5 text-xs text-muted-foreground" data-testid="tier">
             Tier {item.tier}
@@ -247,16 +260,25 @@ function Ticket({ item, config, rpc, run, canMoveUp = false, canMoveDown = false
 }
 
 function Swimlanes({ state, rpc, run }: { state: FactoryState; rpc: Rpc; run: (work: Promise<unknown>) => void }) {
-  const open = state.items.filter((item) => item.status !== "done" && item.status !== "cancelled");
+  const open = state.items.filter((item) => item.status !== "done" && item.status !== "archived" && item.status !== "cancelled");
+  // Merged, with a workspace the founder has not archived yet.
+  const finished = state.items.filter((item) => item.status === "done");
   const lanes = [...new Set(open.map((item) => item.lane))];
-  const done = state.items.filter((item) => item.status === "done").length;
+  const doneLane = finished.length === 0 ? null : (
+    <div className="space-y-2">
+      {finished.map((item) => (
+        <Ticket key={item.id} item={item} config={state.config} rpc={rpc} run={run} />
+      ))}
+    </div>
+  );
   // Only waiting tickets move, and only among the waiting tickets of their lane.
   const moves = (item: Item) => {
-    const queue = open.filter((other) => other.lane === item.lane && other.status === "queued");
+    const queue = open.filter((other) => other.lane === item.lane && other.status === "queued" && !other.parked);
+    if (item.parked) return { canMoveUp: false, canMoveDown: false };
     const index = queue.findIndex((other) => other.id === item.id);
     return { canMoveUp: index > 0, canMoveDown: index !== -1 && index < queue.length - 1 };
   };
-  if (lanes.length === 0) {
+  if (lanes.length === 0 && finished.length === 0) {
     return <Empty>No tickets yet. Lanes fill from the swimlane schedule.</Empty>;
   }
   return (
@@ -273,7 +295,13 @@ function Swimlanes({ state, rpc, run }: { state: FactoryState; rpc: Rpc; run: (w
             ))}
         </div>
       ))}
-      {done === 0 ? null : <p className="text-xs text-muted-foreground">{done} finished</p>}
+      {doneLane === null ? null : (
+        <div className="space-y-2 rounded-lg border border-border p-3" data-testid="done-lane">
+          <div className="text-sm font-medium">Done</div>
+          <p className="text-xs text-muted-foreground">Merged. Archive a workspace in the sidebar to clear it from here.</p>
+          {doneLane}
+        </div>
+      )}
     </div>
     <div className="hidden overflow-x-auto rounded-lg border border-border md:block">
       <table className="w-full min-w-[640px] border-collapse text-left align-top">
@@ -303,7 +331,19 @@ function Swimlanes({ state, rpc, run }: { state: FactoryState; rpc: Rpc; run: (w
           })}
         </tbody>
       </table>
-      {done === 0 ? null : <p className="border-t border-border px-3 py-2 text-xs text-muted-foreground">{done} finished</p>}
+      {doneLane === null ? null : (
+        <div className="grid grid-cols-[9rem_1fr] border-t border-border" data-testid="done-lane">
+          <div className="px-3 py-3 text-sm font-medium">
+            Done
+            <p className="mt-1 text-xs font-normal text-muted-foreground">Merged. Archive a workspace in the sidebar to clear it.</p>
+          </div>
+          <div className="grid gap-2 px-3 py-3 lg:grid-cols-2">
+            {finished.map((item) => (
+              <Ticket key={item.id} item={item} config={state.config} rpc={rpc} run={run} />
+            ))}
+          </div>
+        </div>
+      )}
     </div>
     </>
   );

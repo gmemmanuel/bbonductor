@@ -153,11 +153,6 @@ export default async function plugin(bb: BbPluginApi) {
         ...(reasoningLevel === "" ? {} : { reasoningLevel }),
       });
     },
-    archive(threadId) {
-      void bb.sdk.threads
-        .archive({ threadId })
-        .catch((error: unknown) => bb.log.debug(`archive skipped: ${messageOf(error)}`));
-    },
     async environmentOf(threadId) {
       return (await bb.sdk.threads.get({ threadId })).environmentId;
     },
