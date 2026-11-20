@@ -116,6 +116,7 @@ export const INBOX_KINDS = [
   "failed",
   "blocked",
   "check",
+  "test",
 ] as const;
 export type InboxKind = (typeof INBOX_KINDS)[number];
 

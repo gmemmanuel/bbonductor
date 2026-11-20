@@ -131,6 +131,7 @@ const KIND_LABEL: Record<InboxEntry["kind"], string> = {
   failed: "Failed",
   blocked: "Blocked",
   check: "Try before it ships",
+  test: "Try on main",
 };
 
 function InboxCard({ entry, ticket, rpc, run }: { entry: InboxEntry; ticket: string | null; rpc: Rpc; run: (work: Promise<unknown>) => void }) {
@@ -155,7 +156,7 @@ function InboxCard({ entry, ticket, rpc, run }: { entry: InboxEntry; ticket: str
         >
           {KIND_LABEL[entry.kind]}
         </span>
-        <span className="text-muted-foreground">{ticket === null ? entry.from : entry.from.replace(` · ${ticket}`, "")}</span>
+        <span className="text-muted-foreground">{entry.kind === "test" ? "Shipped" : ticket === null ? entry.from : entry.from.replace(` · ${ticket}`, "")}</span>
         <span className="text-muted-foreground">{new Date(entry.createdAt).toLocaleString()}</span>
       </div>
       <p className="text-sm font-medium">{entry.question}</p>
@@ -184,7 +185,7 @@ function InboxCard({ entry, ticket, rpc, run }: { entry: InboxEntry; ticket: str
             <Input
               value={answer}
               onChange={(event) => setAnswer(event.target.value)}
-              placeholder={entry.kind === "question" ? "Your decision" : entry.kind === "check" ? "What to change (sends it back to the builder)" : "Tell the agent what to do"}
+              placeholder={entry.kind === "question" ? "Your decision" : entry.kind === "test" ? "Anything wrong? (goes to the builder)" : entry.kind === "check" ? "What to change (sends it back to the builder)" : "Tell the agent what to do"}
               aria-label={`Answer ${entry.from}`}
               className="h-10 w-full basis-full text-base sm:h-9 sm:w-auto sm:min-w-48 sm:flex-1 sm:basis-0 sm:text-sm"
             />

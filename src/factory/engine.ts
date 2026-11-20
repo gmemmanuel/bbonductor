@@ -118,6 +118,8 @@ export interface AskInput {
   context?: string;
   options?: string[];
   recommendation?: string;
+  /** Not a decision: something already shipped that the founder should try. */
+  testing?: boolean;
   /** Chief of staff only: the thread this is about, as "KEY" or "KEY:stage". */
   about?: string;
 }
@@ -707,7 +709,7 @@ export class FactoryEngine {
         item,
         threadId,
         projectId: binding.projectId,
-        kind: "question",
+        kind: input.testing === true ? "test" : "question",
         from,
         question: input.question,
         context: input.context ?? "",
@@ -819,6 +821,15 @@ export class FactoryEngine {
         resolvedAt: Date.now(),
       });
       this.resumeIfClear(entry.itemId);
+      this.effects.changed();
+      return saved;
+    });
+  }
+
+  /** Correct what kind of entry something is (a test filed as a decision, say). */
+  retag(entryId: string, kind: InboxKind): Promise<InboxEntry> {
+    return this.exclusive(async () => {
+      const saved = this.store.saveInbox({ ...this.requireOpenEntry(entryId), kind });
       this.effects.changed();
       return saved;
     });
