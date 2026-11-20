@@ -76,6 +76,7 @@ export const rpcContract = defineRpcContract({
     output: itemSchema,
   },
   advance: { input: itemRef, output: itemSchema },
+  reorder: { input: itemRef.extend({ direction: z.enum(["up", "down"]) }), output: itemSchema },
   cancel: { input: itemRef, output: itemSchema },
   answer: { input: entryRef.extend({ answer: z.string().trim().min(1).max(8000) }), output: inboxSchema },
   dismiss: { input: entryRef, output: inboxSchema },
@@ -289,6 +290,17 @@ export default async function plugin(bb: BbPluginApi) {
   });
 
   bb.agents.registerTool({
+    name: "factory_ask_planner",
+    description:
+      "Send something back to this ticket's planner, the agent that reviewed its plan. Use it whenever your project's process says a question or blocker goes to the planner. Then end your turn; the planner's answer arrives in this thread.",
+    presentation: { label: { pending: "Asking the planner", completed: "Asked the planner" } },
+    parameters: z.object({
+      question: z.string().min(1).max(8000).describe("The complete handoff: what is blocked, the evidence, what you propose, and what you need decided."),
+    }),
+    execute: ({ question }, { threadId }) => toolResult(() => engine.askPlanner(threadId, question)),
+  });
+
+  bb.agents.registerTool({
     name: "factory_message",
     description:
       'Send a message to another factory thread. `to` is a standing agent ("orchestrator"), a ticket key for its current stage ("JUS-12"), or "JUS-12:build" for one stage\'s thread.',
@@ -333,7 +345,7 @@ export default async function plugin(bb: BbPluginApi) {
       .binding;
     if (binding?.kind === "stage") {
       return {
-        tools: ["factory_stage_done", "factory_ask_founder", "factory_message"],
+        tools: ["factory_stage_done", "factory_ask_founder", "factory_ask_planner", "factory_message"],
         skills: ["factory"],
       };
     }
@@ -475,6 +487,7 @@ export default async function plugin(bb: BbPluginApi) {
       }),
     move: ({ itemId, lane, position }) => engine.move(itemId, lane, position),
     advance: ({ itemId }) => engine.advance(itemId),
+    reorder: ({ itemId, direction }) => engine.reorder(itemId, direction),
     cancel: ({ itemId }) => engine.cancel(itemId),
     answer: ({ entryId, answer }) => engine.answer(entryId, answer),
     dismiss: ({ entryId }) => engine.dismiss(entryId),

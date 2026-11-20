@@ -21,6 +21,7 @@ Do that work to the project's own standard. Then report exactly once:
 | The stage is completely finished | `factory_stage_done` with `outcome: "complete"` |
 | You are a reviewer and the author must change something you cannot land yourself | `factory_stage_done` with `outcome: "changes_requested"` |
 | Only the founder can decide | `factory_ask_founder`, then end your turn |
+| Something must go back to the planner | `factory_ask_planner`, then end your turn |
 | You cannot proceed for another reason | `factory_stage_done` with `outcome: "blocked"` |
 
 Rules:
@@ -34,6 +35,14 @@ Rules:
   in this thread. Address them and call `factory_stage_done` again. Pass
   `rereview: true` only when your fixes raise a new product or scope decision;
   one review pass is the design.
+- **The planner of a ticket is the agent that reviewed its plan.** When your
+  project's process says a question, a blocker or a contract problem goes back
+  to the planner, call `factory_ask_planner` with the full handoff. It reaches
+  that agent's thread, its answer arrives here, and the two of you go back and
+  forth as often as needed. If you are the plan reviewer and a builder asks,
+  decide, update the plan if it changes, and reply with `factory_message` to
+  `KEY:stage`. The founder never carries these, so never put one in his inbox
+  or report it as blocked.
 - **Ask the founder only for founder decisions:** product behavior, scope,
   approval of a mockup, or a contradiction with a recorded decision. Give the situation, the options
   with what the user would see in each, and your recommendation. Decide

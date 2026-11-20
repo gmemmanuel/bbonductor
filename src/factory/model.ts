@@ -61,6 +61,7 @@ export const ITEM_STATUSES = [
   "queued",
   "running",
   "needs-founder",
+  "with-planner",
   "returned",
   "stalled",
   "failed",
@@ -88,6 +89,8 @@ export const itemSchema = z.object({
   /** Review stages already passed once; skipped when the author finishes fixes. */
   passedReviews: z.array(z.string()),
   lastSummary: z.string(),
+  /** The planner thread a stage is waiting on, and whether it was reminded. */
+  consult: z.object({ threadId: z.string(), nudged: z.boolean() }).nullable().default(null),
   /** Thread that queued this ticket; review findings with no author stage go here. */
   originThreadId: z.string().nullable(),
   nudged: z.boolean(),

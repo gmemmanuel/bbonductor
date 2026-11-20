@@ -175,6 +175,7 @@ const STATUS_STYLE: Record<Item["status"], string> = {
   queued: "text-muted-foreground",
   running: "text-foreground",
   "needs-founder": "text-destructive",
+  "with-planner": "text-foreground",
   returned: "text-foreground",
   stalled: "text-destructive",
   failed: "text-destructive",
@@ -185,6 +186,7 @@ const STATUS_LABEL: Record<Item["status"], string> = {
   queued: "Queued",
   running: "Running",
   "needs-founder": "Needs you",
+  "with-planner": "With plan reviewer",
   returned: "Returned to planner",
   stalled: "Stalled",
   failed: "Failed",
@@ -192,54 +194,46 @@ const STATUS_LABEL: Record<Item["status"], string> = {
   cancelled: "Cancelled",
 };
 
-function Ticket({ item, config, lanes, rpc, run }: { item: Item; config: Config; lanes: string[]; rpc: Rpc; run: (work: Promise<unknown>) => void }) {
+function Ticket({ item, config, rpc, run, canMoveUp = false, canMoveDown = false }: { item: Item; config: Config; rpc: Rpc; run: (work: Promise<unknown>) => void; canMoveUp?: boolean; canMoveDown?: boolean }) {
   const navigate = useBbNavigate();
   const stages = config.pipelines[item.pipeline] ?? [];
   const stageId = stages[item.stageIndex];
   const stageLabel = stageId === undefined ? "" : (config.stages[stageId]?.label ?? stageId);
+  const waiting = item.status === "queued";
+  // The thread doing the work now, or the planner it is waiting on.
+  const threadId = item.consult?.threadId ?? (stageId === undefined ? undefined : item.threads[stageId]);
   return (
     <div className="space-y-1 rounded-md border border-border bg-card p-2.5 text-sm" data-testid="ticket">
-      <div className="flex flex-wrap items-baseline gap-x-2">
+      <div className="flex items-center gap-2">
         <span className="font-mono font-medium">{item.key}</span>
-        <span className={cn("text-xs font-medium", STATUS_STYLE[item.status])}>
-          {item.status === "running" || item.status === "queued"
-            ? `${stageLabel}${item.status === "queued" ? " (queued)" : ""}`
+        <span className={cn("min-w-0 flex-1 truncate text-xs font-medium", STATUS_STYLE[item.status])}>
+          {item.status === "running" || waiting
+            ? stageLabel
             : `${STATUS_LABEL[item.status]}${stageLabel === "" ? "" : ` · ${stageLabel}`}`}
         </span>
-      </div>
-      <p className="text-muted-foreground">
-        {item.title}
-        {item.tier === null ? null : <span className="text-xs"> · tier {item.tier} plan</span>}
-      </p>
-      <div className="flex flex-wrap items-center gap-1">
-        {stages
-          .filter((id) => item.threads[id] !== undefined)
-          .map((id) => (
-            <Button key={id} variant="outline" size="sm" className="h-6 px-2" onClick={() => navigate.toThread(item.threads[id]!)}>
-              {config.stages[id]?.label ?? id}
-            </Button>
-          ))}
-        <select
-          className={cn(selectClass, "h-6")}
-          aria-label={`Move ${item.key} to lane`}
-          value={item.lane}
-          onChange={(event) => run(rpc.call("move", { itemId: item.id, lane: event.target.value }))}
-        >
-          {lanes.map((lane) => (
-            <option key={lane} value={lane}>
-              {lane}
-            </option>
-          ))}
-        </select>
-        {item.status === "queued" ? null : (
-          <Button variant="ghost" size="sm" className="h-6 px-2" aria-label="Advance: skip the current stage" onClick={() => run(rpc.call("advance", { itemId: item.id }))}>
-            Advance
-          </Button>
+        {item.tier === null ? null : (
+          <span className="shrink-0 rounded-full border border-border px-2 py-0.5 text-xs text-muted-foreground" data-testid="tier">
+            Tier {item.tier}
+          </span>
         )}
-        <Button variant="ghost" size="sm" className="h-6 px-2" onClick={() => run(rpc.call("cancel", { itemId: item.id }))}>
-          Cancel
-        </Button>
       </div>
+      <p className="text-muted-foreground">{item.title}</p>
+      {waiting ? (
+        canMoveUp || canMoveDown ? (
+          <div className="flex items-center gap-1">
+            <Button variant="outline" size="sm" className="h-7 w-8 px-0" aria-label={`Move ${item.key} earlier`} disabled={!canMoveUp} onClick={() => run(rpc.call("reorder", { itemId: item.id, direction: "up" }))}>
+              ↑
+            </Button>
+            <Button variant="outline" size="sm" className="h-7 w-8 px-0" aria-label={`Move ${item.key} later`} disabled={!canMoveDown} onClick={() => run(rpc.call("reorder", { itemId: item.id, direction: "down" }))}>
+              ↓
+            </Button>
+          </div>
+        ) : null
+      ) : threadId === undefined ? null : (
+        <Button variant="outline" size="sm" className="h-7 px-2" onClick={() => navigate.toThread(threadId)}>
+          Open thread
+        </Button>
+      )}
     </div>
   );
 }
@@ -248,8 +242,14 @@ function Swimlanes({ state, rpc, run }: { state: FactoryState; rpc: Rpc; run: (w
   const open = state.items.filter((item) => item.status !== "done" && item.status !== "cancelled");
   const lanes = [...new Set(open.map((item) => item.lane))];
   const done = state.items.filter((item) => item.status === "done").length;
+  // Only waiting tickets move, and only among the waiting tickets of their lane.
+  const moves = (item: Item) => {
+    const queue = open.filter((other) => other.lane === item.lane && other.status === "queued");
+    const index = queue.findIndex((other) => other.id === item.id);
+    return { canMoveUp: index > 0, canMoveDown: index !== -1 && index < queue.length - 1 };
+  };
   if (lanes.length === 0) {
-    return <Empty>No tickets yet. Add one below, or ask the orchestrator to queue work.</Empty>;
+    return <Empty>No tickets yet. Lanes fill from the swimlane schedule.</Empty>;
   }
   return (
     <>
@@ -261,7 +261,7 @@ function Swimlanes({ state, rpc, run }: { state: FactoryState; rpc: Rpc; run: (w
           {open
             .filter((item) => item.lane === lane)
             .map((item) => (
-              <Ticket key={item.id} item={item} config={state.config} lanes={lanes} rpc={rpc} run={run} />
+              <Ticket key={item.id} item={item} config={state.config} rpc={rpc} run={run} {...moves(item)} />
             ))}
         </div>
       ))}
@@ -283,11 +283,11 @@ function Swimlanes({ state, rpc, run }: { state: FactoryState; rpc: Rpc; run: (w
               <tr key={lane} className="border-t border-border align-top" data-testid="lane">
                 <td className="px-3 py-3 text-sm font-medium">{lane}</td>
                 <td className="px-3 py-3">
-                  {head === undefined ? null : <Ticket item={head} config={state.config} lanes={lanes} rpc={rpc} run={run} />}
+                  {head === undefined ? null : <Ticket item={head} config={state.config} rpc={rpc} run={run} {...moves(head)} />}
                 </td>
                 <td className="space-y-2 px-3 py-3">
                   {rest.map((item) => (
-                    <Ticket key={item.id} item={item} config={state.config} lanes={lanes} rpc={rpc} run={run} />
+                    <Ticket key={item.id} item={item} config={state.config} rpc={rpc} run={run} {...moves(item)} />
                   ))}
                 </td>
               </tr>
@@ -298,37 +298,6 @@ function Swimlanes({ state, rpc, run }: { state: FactoryState; rpc: Rpc; run: (w
       {done === 0 ? null : <p className="border-t border-border px-3 py-2 text-xs text-muted-foreground">{done} finished</p>}
     </div>
     </>
-  );
-}
-
-function AddTicket({ state, rpc, run }: { state: FactoryState; rpc: Rpc; run: (work: Promise<unknown>) => void }) {
-  const [key, setKey] = useState("");
-  const [title, setTitle] = useState("");
-  const [lane, setLane] = useState("");
-  const [pipeline, setPipeline] = useState(state.config.defaultPipeline);
-  const submit = (event: FormEvent) => {
-    event.preventDefault();
-    if (state.projectId === null || key.trim() === "" || title.trim() === "") return;
-    run(rpc.call("enqueue", { projectId: state.projectId, key, title, brief: "", lane, pipeline }));
-    setKey("");
-    setTitle("");
-  };
-  return (
-    <form onSubmit={submit} className="flex flex-wrap items-center gap-2">
-      <Input value={key} onChange={(e) => setKey(e.target.value)} placeholder="Key (JUS-123)" aria-label="Ticket key" className="w-full sm:w-32" />
-      <Input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Ticket title" aria-label="Ticket title" className="min-w-48 flex-1" />
-      <Input value={lane} onChange={(e) => setLane(e.target.value)} placeholder="Lane" aria-label="Lane" className="w-full sm:w-32" />
-      <select className={selectClass} aria-label="Pipeline" value={pipeline} onChange={(e) => setPipeline(e.target.value)}>
-        {Object.entries(state.config.pipelines).map(([name, stages]) => (
-          <option key={name} value={name}>
-            {name}: {stages.map((id) => state.config.stages[id]?.label ?? id).join(" → ")}
-          </option>
-        ))}
-      </select>
-      <Button type="submit" size="sm" disabled={key.trim() === "" || title.trim() === ""}>
-        Add ticket
-      </Button>
-    </form>
   );
 }
 
@@ -448,20 +417,6 @@ function Roles({ state, rpc, run }: { state: FactoryState; rpc: Rpc; run: (work:
           </tbody>
         </table>
       </div>
-      <label className="flex items-center gap-2 text-sm">
-        Tickets in flight at once
-        <select
-          className={selectClass}
-          value={state.config.maxActiveItems}
-          onChange={(e) => save({ ...state.config, maxActiveItems: Number(e.target.value) })}
-        >
-          {Array.from({ length: 16 }, (_, index) => index + 1).map((count) => (
-            <option key={count} value={count}>
-              {count}
-            </option>
-          ))}
-        </select>
-      </label>
     </div>
   );
 }
@@ -561,9 +516,8 @@ function FactoryPage() {
           <Empty>Add a project to bb to start a factory.</Empty>
         ) : (
           <>
-            <Section title="Swimlanes" hint="A lane works one ticket at a time, top to bottom. Lanes run side by side.">
+            <Section title="Swimlanes" hint="One ticket in flight per lane. Use the arrows to reorder what is next.">
               <Swimlanes state={state} rpc={rpc} run={run} />
-              <AddTicket state={state} rpc={rpc} run={run} />
             </Section>
             <Section title="Standing agents" hint="Long-lived threads in the main checkout, each with a memory file in the repo.">
               <Agents state={state} rpc={rpc} run={run} />

@@ -138,16 +138,37 @@ describe("swimlanes", () => {
     });
   });
 
-  it("holds new lanes once the capacity limit is reached, and starts them as work finishes", async () => {
-    const { config } = await t.state();
-    await t.rpc("saveConfig", { projectId: PROJECT, config: { ...config, maxActiveItems: 1 } });
-    await t.enqueue("JUS-1", "A", "small-bug");
-    await t.enqueue("JUS-2", "B", "small-bug");
-    expect((await t.item("JUS-2")).status).toBe("queued");
+  it("runs one ticket per lane with no overall limit on lanes", async () => {
+    for (const lane of ["A", "B", "C", "D", "E", "F", "G", "H", "I", "J"]) {
+      await t.enqueue(`JUS-${lane}1`, lane, "small-bug");
+      await t.enqueue(`JUS-${lane}2`, lane, "small-bug");
+    }
+    const items = (await t.state()).items;
+    expect(items.filter((item) => item.status === "running")).toHaveLength(10);
+    expect(items.filter((item) => item.status === "queued")).toHaveLength(10);
+  });
 
-    await t.tool("factory_stage_done", "th_1", { outcome: "complete", summary: "Fixed and merged." });
-    expect((await t.item("JUS-1")).status).toBe("done");
-    expect((await t.item("JUS-2")).status).toBe("running");
+  it("lets the founder reorder the tickets waiting in a lane, and never the one in flight", async () => {
+    for (const key of ["JUS-1", "JUS-2", "JUS-3", "JUS-4"]) await t.enqueue(key, "Coach", "small-bug");
+    const order = async () =>
+      (await t.state()).items.filter((item) => item.lane === "Coach").map((item) => item.key);
+    const reorder = async (key: string, direction: "up" | "down") =>
+      t.rpc("reorder", { itemId: (await t.item(key)).id, direction });
+
+    await reorder("JUS-4", "up");
+    expect(await order()).toEqual(["JUS-1", "JUS-2", "JUS-4", "JUS-3"]);
+    await reorder("JUS-4", "up");
+    expect(await order()).toEqual(["JUS-1", "JUS-4", "JUS-2", "JUS-3"]);
+    // Already first among the waiting tickets: nothing moves, and it cannot pass the one in flight.
+    await reorder("JUS-4", "up");
+    expect(await order()).toEqual(["JUS-1", "JUS-4", "JUS-2", "JUS-3"]);
+    await expect(reorder("JUS-1", "down")).rejects.toThrow(/has started/);
+
+    // The new order is what runs next, and a schedule sync does not undo it.
+    await t.harness.behavior.runCli(["sync", JSON.stringify({ lanes: [{ name: "Coach", items: ["JUS-2", "JUS-3", "JUS-4"].map((key) => ({ key, title: key, pipeline: "small-bug" })) }] })], { projectId: PROJECT });
+    await t.tool("factory_stage_done", "th_1", { outcome: "complete", summary: "Fixed." });
+    expect((await t.item("JUS-4")).status).toBe("running");
+    expect(await order()).toEqual(["JUS-1", "JUS-4", "JUS-2", "JUS-3"]);
   });
 
   it("starts the next ticket in a lane when the one ahead of it is cancelled", async () => {
@@ -255,6 +276,64 @@ describe("pipeline handoffs", () => {
     await t.enqueue("JUS-1", "Coach", "reviewed");
     const result = await t.tool("factory_stage_done", "th_1", { outcome: "changes_requested", summary: "x" });
     expect(result).toContain("not a review stage");
+  });
+});
+
+describe("builder and plan reviewer go back and forth without the founder", () => {
+  const start = async () => {
+    await t.enqueue("JUS-1", "Coach", "planned");
+    await t.tool("factory_stage_done", "th_1", { outcome: "complete", summary: "Plan reviewed." });
+    expect(t.spawned.at(-1)).toMatchObject({ id: "th_2", title: "JUS-1 · Build" });
+  };
+
+  it("sends the builder's question to the thread that reviewed the plan, and resumes on its reply", async () => {
+    await start();
+    const asked = await t.tool("factory_ask_planner", "th_2", { question: "PLANNER INPUT REQUIRED: the replay contract cannot requalify." });
+    expect(asked).toContain("planner");
+    expect(t.sent.at(-1)).toMatchObject({ threadId: "th_1", senderThreadId: "th_2" });
+    expect(t.sent.at(-1)!.text).toContain("the replay contract cannot requalify");
+    expect(t.sent.at(-1)!.text).toContain('to: "JUS-1:build"');
+    expect((await t.item("JUS-1")).status).toBe("with-planner");
+    expect((await t.state()).inbox).toEqual([]);
+
+    // The builder ending its turn while it waits is not a stall.
+    await t.emit("thread.idle", "th_2", { lastAssistantText: "Waiting on the planner." });
+    expect(t.sent.at(-1)!.threadId).toBe("th_1");
+
+    await t.tool("factory_message", "th_1", { to: "JUS-1:build", message: "Requalify against v5.12.0; plan updated." });
+    expect(t.sent.at(-1)).toMatchObject({ threadId: "th_2", senderThreadId: "th_1" });
+    expect((await t.item("JUS-1")).status).toBe("running");
+
+    // Round two works the same way, and the build then finishes normally.
+    await t.tool("factory_ask_planner", "th_2", { question: "One more: which fixture?" });
+    await t.tool("factory_message", "th_1", { to: "JUS-1", message: "The hand-log one." });
+    await t.tool("factory_stage_done", "th_2", { outcome: "complete", summary: "Built." });
+    expect(t.spawned.at(-1)!.title).toBe("JUS-1 · Review code");
+    expect((await t.state()).inbox).toEqual([]);
+  });
+
+  it("reminds a planner that goes quiet, then tells the founder", async () => {
+    await start();
+    await t.tool("factory_ask_planner", "th_2", { question: "Blocked on X." });
+    await t.emit("thread.idle", "th_1", { lastAssistantText: "Thinking." });
+    expect(t.sent.at(-1)).toMatchObject({ threadId: "th_1" });
+    expect(t.sent.at(-1)!.text).toContain("still waiting on you");
+    await t.emit("thread.idle", "th_1", { lastAssistantText: "Still thinking." });
+    expect((await t.state()).inbox[0]).toMatchObject({ kind: "stalled", from: "Planner · JUS-1" });
+  });
+
+  it("asks whoever queued the ticket when no plan review ran here", async () => {
+    const orchestrator = await t.rpc<{ threadId: string }>("startAgent", { projectId: PROJECT, agentId: "orchestrator" });
+    await t.tool("factory_enqueue", orchestrator.threadId, { key: "JUS-9", title: "Nine", lane: "Coach", pipeline: "reviewed" });
+    await t.tool("factory_ask_planner", "th_2", { question: "Blocked." });
+    expect(t.sent.at(-1)!.threadId).toBe(orchestrator.threadId);
+  });
+
+  it("offers the tool to every stage thread", async () => {
+    const config = await t.harness.behavior.resolveAgentConfiguration(
+      makePluginAgentConfigurationContext({ pluginMetadata: { binding: { kind: "stage", itemId: "itm_1", stage: "build" } } } as never),
+    );
+    expect((config?.tools ?? []).map((tool: { name: string }) => tool.name)).toContain("factory_ask_planner");
   });
 });
 
@@ -442,7 +521,7 @@ describe("standing agents and messaging", () => {
     expect(names(outsider?.tools)).toEqual([]);
 
     const worker = await configure({ binding: { kind: "stage", itemId: "itm_1", stage: "build" } });
-    expect(names(worker?.tools)).toEqual(["factory_stage_done", "factory_ask_founder", "factory_message"]);
+    expect(names(worker?.tools)).toEqual(["factory_stage_done", "factory_ask_founder", "factory_ask_planner", "factory_message"]);
 
     const orchestrator = await configure({ binding: { kind: "agent", agentId: "orchestrator", projectId: PROJECT } });
     expect(names(orchestrator?.tools)).toContain("factory_enqueue");

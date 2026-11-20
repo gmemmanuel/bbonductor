@@ -63,6 +63,7 @@ export interface Effects {
 const ACTIVE = new Set<Item["status"]>([
   "running",
   "needs-founder",
+  "with-planner",
   "returned",
   "stalled",
   "failed",
@@ -150,6 +151,7 @@ export class FactoryEngine {
         threads: {},
         passedReviews: [],
         lastSummary: "",
+        consult: null,
         originThreadId: input.originThreadId ?? null,
         nudged: false,
         createdAt: now,
@@ -243,6 +245,7 @@ export class FactoryEngine {
               threads: {},
               passedReviews: [],
               lastSummary: "",
+              consult: null,
               originThreadId,
               nudged: false,
               createdAt: now,
@@ -260,6 +263,63 @@ export class FactoryEngine {
       await this.scheduleLocked(projectId);
       this.effects.changed();
       return report;
+    });
+  }
+
+  /** Swap a waiting ticket with the waiting ticket before or after it in its lane. */
+  reorder(itemId: string, direction: "up" | "down"): Promise<Item> {
+    return this.exclusive(async () => {
+      const item = this.requireItem(itemId);
+      if (item.status !== "queued") throw new FactoryError(`${item.key} has started; only waiting tickets can be reordered.`);
+      const waiting = this.store
+        .listItems(item.projectId)
+        .filter((other) => other.lane === item.lane && other.status === "queued");
+      const index = waiting.findIndex((other) => other.id === item.id);
+      const neighbour = waiting[index + (direction === "up" ? -1 : 1)];
+      if (neighbour === undefined) return item;
+      this.store.saveItem({ ...item, position: neighbour.position });
+      this.store.saveItem({ ...neighbour, position: item.position });
+      await this.scheduleLocked(item.projectId);
+      this.effects.changed();
+      return this.requireItem(itemId);
+    });
+  }
+
+  /**
+   * A stage needs its planner. The planner of a ticket is the agent that
+   * reviewed its plan; the founder never carries these. The question goes to
+   * that thread, and the planner answers with a message to the stage's thread.
+   */
+  askPlanner(threadId: string, question: string): Promise<string> {
+    return this.exclusive(async () => {
+      const { item, stageId } = this.requireCurrentStage(threadId);
+      const config = this.store.getConfig(item.projectId);
+      const stages = config.pipelines[item.pipeline] ?? [];
+      let planner: string | null = null;
+      for (let index = item.stageIndex - 1; index >= 0 && planner === null; index -= 1) {
+        const earlier = stages[index]!;
+        if (config.stages[earlier]?.review === true) planner = item.threads[earlier] ?? null;
+      }
+      // A ticket queued already reviewed has no plan-review thread here: its
+      // planner is whoever queued it, else the standing orchestrator.
+      planner ??= item.originThreadId;
+      if (planner === null && config.agents.orchestrator !== undefined) {
+        const state = this.store.getAgent(item.projectId, "orchestrator");
+        planner = state.threadId ?? (await this.spawnAgent(item.projectId, "orchestrator", "")).threadId;
+      }
+      if (planner === null || planner === threadId) {
+        throw new FactoryError(`${item.key} has no planner thread to ask. Use factory_stage_done with outcome "blocked".`);
+      }
+      const label = config.stages[stageId]?.label ?? stageId;
+      await this.effects.send(
+        planner,
+        `The ${label} stage for ${item.key} (${item.title}) has stopped and needs its planner. For this ticket that is you: the founder does not carry these. Decide, update the plan if it needs to change, then reply with factory_message (to: "${item.key}:${stageId}") so the work continues. Go back and forth as often as needed. Bring the founder only a product decision, with factory_ask_founder.\n\nFrom the ${label} stage:\n${question.trim()}`,
+        threadId,
+      );
+      this.closeEntriesFor(item.id);
+      this.store.saveItem({ ...item, status: "with-planner", consult: { threadId: planner, nudged: false } });
+      this.effects.changed();
+      return "Sent to this ticket's planner. Its answer will arrive in this thread as a message. End your turn.";
     });
   }
 
@@ -302,14 +362,13 @@ export class FactoryEngine {
   private async scheduleLocked(projectId: string): Promise<void> {
     const config = this.store.getConfig(projectId);
     const items = this.store.listItems(projectId);
-    let active = items.filter((item) => ACTIVE.has(item.status)).length;
+    // One ticket in flight per lane. How many lanes exist is decided where the
+    // lanes are made (the sequencing skill caps them), not here.
     const lanes = [...new Set(items.map((item) => item.lane))];
     for (const lane of lanes) {
-      if (active >= config.maxActiveItems) return;
       const head = items.find((item) => item.lane === lane && !CLOSED.has(item.status));
       if (head === undefined || head.status !== "queued") continue;
       await this.runStage(head, config);
-      active += 1;
     }
   }
 
@@ -644,6 +703,30 @@ export class FactoryEngine {
 
   onIdle(threadId: string, lastAssistantText: string | null): Promise<void> {
     return this.exclusive(async () => {
+      const binding = this.store.getBinding(threadId);
+      const asked = binding?.itemId == null ? null : this.store.getItem(binding.itemId);
+      if (asked !== null && asked.status === "with-planner" && asked.consult?.threadId === threadId) {
+        const stageId = currentStageId(this.store, asked) ?? "";
+        if (this.store.listInbox({ status: "open", threadId }).length > 0) return;
+        if (!asked.consult.nudged) {
+          this.store.saveItem({ ...asked, consult: { ...asked.consult, nudged: true } });
+          await this.effects.send(
+            threadId,
+            `The ${stageId} stage for ${asked.key} is still waiting on you. Reply with factory_message (to: "${asked.key}:${stageId}"), or call factory_ask_founder if only the founder can decide.`,
+          );
+          return;
+        }
+        this.openEntry({
+          item: asked,
+          threadId,
+          kind: "stalled",
+          from: `Planner · ${asked.key}`,
+          question: `${asked.key}'s planner stopped twice without answering the ${stageId} stage.`,
+          context: (lastAssistantText ?? "").slice(0, 2000),
+        });
+        this.effects.changed();
+        return;
+      }
       const current = this.currentStage(threadId);
       if (current === null || current.item.status !== "running") return;
       const { item, stageId } = current;
@@ -947,6 +1030,12 @@ export class FactoryEngine {
         `Message from ${sender}:\n\n${text.trim()}`,
         fromThreadId ?? undefined,
       );
+      // The planner answering is what puts a waiting stage back to work.
+      const waiting = this.currentStage(target.threadId);
+      if (waiting !== null && waiting.item.status === "with-planner") {
+        this.store.saveItem({ ...waiting.item, status: "running", consult: null, nudged: false });
+        this.effects.changed();
+      }
       return `Delivered to ${target.label}.`;
     });
   }
@@ -1110,6 +1199,7 @@ export function stageProtocol(item: Item, stageLabel: string, review: boolean): 
       ? `- If the author must change something you cannot land yourself, call factory_stage_done with outcome "changes_requested" and the findings. They go to the author's thread.`
       : `- If a reviewer sends findings to this thread later, address them and call factory_stage_done again.`,
     `- If only the founder can decide something, call factory_ask_founder with the situation, the options, and your recommendation, then end your turn. The answer arrives here as a message.`,
+    `- If your project's process says something goes back to the planner, call factory_ask_planner with the full handoff. For this ticket the planner is the agent that reviewed its plan; its answer arrives here as a message, and you may go back and forth as often as needed. Never send planner questions to the founder.`,
     `- If you cannot proceed for any other reason, call factory_stage_done with outcome "blocked" and say why.`,
     `- To talk to another agent, call factory_message.`,
     `Do not start the next stage yourself and do not launch your own reviewer: the factory does both.`,

@@ -37,6 +37,9 @@ Non-obvious decisions and process knowledge for agents working on the Factory pl
 - **A bb thread cannot change provider.** `threads.update` takes a model, not a provider. A fallback on the same provider switches the thread in place and reruns the turn; a fallback on another provider starts a replacement thread in the same worktree with a handover that points at `bb thread log <old thread>` and the worktree's git state. The replacement is marked so a limit on the fallback goes to the founder and never bounces back.
 - **Page layouts need a phone variant, not just a scroll container.** The swimlane table renders as one card per lane below the `md` breakpoint; inbox answer fields and option buttons go full width. Check with a 390 px wide headless screenshot.
 
+- **The first real build stopped on a "planner" the factory did not know about.** Justus builders are told to return certain blockers to "the planner" with a `PLANNER INPUT REQUIRED` handoff; with no such role in the pipeline the builder reported `blocked` and it landed in the founder's inbox. The planner of a ticket is the thread that reviewed its plan: `factory_ask_planner` sends there, the reviewer answers with `factory_message` to `KEY:stage`, and that reply is what resumes the stage (`with-planner` status). Project vocabulary for roles has to map onto a thread, or it ends up with the founder.
+- **A merged pull request is not installed.** bb tracks `git:…@main` but only moves on `bb plugin update bbonductor --yes`. The founder looked for a feature that was merged and not yet updated. Update right after every merge.
+
 ## Testing
 
 - **The fake plugin host proves the rules; only real bb proves the wiring.** Run both. The live check starts bb with its own data folder and ports, so it never touches `~/.bb`.
