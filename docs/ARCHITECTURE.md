@@ -92,6 +92,8 @@ A standing agent is a pinned thread in the project's main checkout, started from
 
 ## Experimental bb APIs in use
 
+- `app.slots.experimental_appOverlay` mounts the inbox chime once per window, so it plays on any page.
+
 - `app.slots.navPanel({ experimental_useBadge })` for the rail count.
 - `threads.interactions.list` result shape is read defensively.
 

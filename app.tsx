@@ -18,6 +18,53 @@ import { cn } from "@/lib/utils";
 
 const CHANGED = "factory-changed";
 const PROJECT_KEY = "bbonductor.factory.project";
+const INBOX_ARRIVED = "factory-inbox-arrived";
+const CHIME_KEY = "bbonductor.factory.chime";
+
+/**
+ * Two soft, falling bell notes, like a station announcement chime. Made with
+ * the browser's own audio, so there is no sound file to ship.
+ */
+let audio: AudioContext | null = null;
+function playChime() {
+  try {
+    audio ??= new AudioContext();
+    const context = audio;
+    void context.resume();
+    const start = context.currentTime + 0.02;
+    // E5 then C5: a calm falling third.
+    [659.25, 523.25].forEach((frequency, index) => {
+      const at = start + index * 0.42;
+      const gain = context.createGain();
+      gain.connect(context.destination);
+      gain.gain.setValueAtTime(0, at);
+      gain.gain.linearRampToValueAtTime(0.16, at + 0.02);
+      gain.gain.exponentialRampToValueAtTime(0.0001, at + 1.6);
+      // A fundamental with a quiet octave above gives it a bell's warmth.
+      for (const [multiple, level] of [[1, 1], [2, 0.25]] as const) {
+        const tone = context.createOscillator();
+        const mix = context.createGain();
+        tone.type = "sine";
+        tone.frequency.value = frequency * multiple;
+        mix.gain.value = level;
+        tone.connect(mix).connect(gain);
+        tone.start(at);
+        tone.stop(at + 1.7);
+      }
+    });
+  } catch {
+    // No audio available: the inbox count and push notification still arrive.
+  }
+}
+const chimeOn = () => typeof localStorage === "undefined" || localStorage.getItem(CHIME_KEY) !== "off";
+
+/** Mounted once per bb window, whatever page is showing. */
+function InboxChime() {
+  useRealtime(INBOX_ARRIVED, () => {
+    if (chimeOn()) playChime();
+  });
+  return null;
+}
 
 type Rpc = ReturnType<typeof useRpc<typeof rpcContract>>;
 interface Catalog {
@@ -528,6 +575,7 @@ function Agents({ state, rpc, run }: { state: FactoryState; rpc: Rpc; run: (work
 function FactoryPage() {
   const { rpc, state, error, run, selectProject } = useFactory();
   const inbox = useMemo(() => state?.inbox ?? [], [state]);
+  const [chime, setChime] = useState(chimeOn);
   if (state === null) {
     return <div className="p-5 text-sm text-muted-foreground">{error ?? "Loading the factory…"}</div>;
   }
@@ -552,6 +600,22 @@ function FactoryPage() {
           </p>
         )}
         <Section title={`Inbox${inbox.length === 0 ? "" : ` (${inbox.length})`}`}>
+          <div className="flex items-center gap-2 text-xs text-muted-foreground">
+            <label className="flex items-center gap-1.5">
+              <input
+                type="checkbox"
+                checked={chime}
+                onChange={(event) => {
+                  localStorage.setItem(CHIME_KEY, event.target.checked ? "on" : "off");
+                  setChime(event.target.checked);
+                }}
+              />
+              Chime when something arrives
+            </label>
+            <button type="button" className="underline" onClick={playChime}>
+              Hear it
+            </button>
+          </div>
           {inbox.length === 0 ? (
             <Empty>Nothing needs you.</Empty>
           ) : (
@@ -598,6 +662,7 @@ function useInboxBadge() {
 }
 
 export default definePluginApp((app) => {
+  app.slots.experimental_appOverlay({ id: "inbox-chime", component: InboxChime });
   app.slots.navPanel({
     id: "factory",
     title: "Factory",

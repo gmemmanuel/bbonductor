@@ -25,6 +25,11 @@ In rough order.
 
 ## Log
 
+### 20 November 2026 (sixth session): inbox chime
+
+- The six open inbox entries were resent in the new format at the founder's request (stage threads re-reported; the chief of staff rewrote one).
+- A chime plays in open bb windows when an inbox entry arrives: synthesized with Web Audio, no asset. Toggle and "Hear it" on the page. **Not checked:** the sound itself, which a headless run cannot hear.
+
 ### 20 November 2026 (fifth session): quieter page and messages
 
 - Fixed-shape `founder_check`; one-line endings for stage threads; stages renamed (Plan review, Execution, Code review; Founder testing while held).
