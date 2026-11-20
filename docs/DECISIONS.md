@@ -11,6 +11,17 @@ What Gideon has decided about the factory, newest first. Check here before re-op
 
 ---
 
+## 20 November 2026
+
+**The planner of a ticket is whoever reviewed its plan.** (Founder)
+"The planner is actually the plan reviewer so I never take things back to the planner. The builder should send it back to the plan reviewer always when they have a back-and-forth and then the plan reviewer can send it back to the builder." Builder and plan reviewer go back and forth directly, as often as needed; the founder does not carry it. Applies in Conductor too.
+
+**The Factory page is for watching and for reordering, not for operating.** (Founder)
+"This is supposed to be headless." Removed: the add-ticket form, the lane dropdown, Cancel, Advance, the per-stage buttons and the "(queued)" label. A ticket shows its tier as a pill. Waiting tickets have arrows to reorder them. Those operations remain on the command line.
+
+**One ticket in flight per lane; no separate limit on tickets in flight.** (Founder)
+"We just have swim lanes and we can have one ticket in flight for each swim lane." The number of lanes is capped where lanes are made, in the sequencing skill.
+
 ## 19 November 2026 (evening)
 
 **A role's fallback can be on another provider.** (Founder)

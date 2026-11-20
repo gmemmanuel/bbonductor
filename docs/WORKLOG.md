@@ -25,6 +25,14 @@ In rough order.
 
 ## Log
 
+### 20 November 2026: builder and plan reviewer talk directly; the page stops being a control panel
+
+- **What the first real ticket showed.** JUS-1011 went through plan review and into build on real agents, then the builder stopped with a planner handoff that landed in the founder's inbox. Routed it by hand to the plan-review thread.
+- **`factory_ask_planner`** and the `with-planner` status: stage to plan reviewer and back, any number of rounds; a quiet planner is reminded once, then the founder is told.
+- **Page cleanup** per the founder: one "Open thread" button on a ticket in flight, reorder arrows on waiting tickets, tier pill; removed add-ticket, lane dropdown, Cancel, Advance, the in-flight limit.
+- **Scheduling** is one ticket per lane with no global cap.
+- **Checked:** 44 behaviour tests, 24 live checks, screenshot.
+
 ### 19 November 2026 (fourth session): first real lane, fallback on any provider, phone layout
 
 - **Lane 4 of the Justus board runs in bb.** Tagged `bb` in the schedule; the refresh queued its five tickets and the first (JUS-1011, how a workout went comes before the reflection) started plan review on a real Claude Code thread in its own worktree. This is the first real agent run in the factory.
