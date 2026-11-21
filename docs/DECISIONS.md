@@ -11,6 +11,11 @@ What Gideon has decided about the factory, newest first. Check here before re-op
 
 ---
 
+## 20 November 2026 (inbox labels)
+
+**The inbox says what kind of thing each entry is:** Decision, Try before it ships, Try on main, To do. (Founder)
+Test steps for shipped work had shown as "Decision"; he also asked for "To do" for things only he can physically do.
+
 ## 20 November 2026 (chime)
 
 **A calm chime plays when something lands in the inbox.** (Founder)

@@ -120,6 +120,8 @@ export interface AskInput {
   recommendation?: string;
   /** Not a decision: something already shipped that the founder should try. */
   testing?: boolean;
+  /** Not a decision: something only the founder can physically do. */
+  todo?: boolean;
   /** Chief of staff only: the thread this is about, as "KEY" or "KEY:stage". */
   about?: string;
 }
@@ -666,7 +668,7 @@ export class FactoryEngine {
           const entry = this.openEntry({
             item: about.item,
             threadId: target.threadId,
-            kind: "question",
+            kind: input.testing === true ? "test" : input.todo === true ? "todo" : "question",
             from: `${config.stages[about.stageId]?.label ?? about.stageId} · ${about.item.key}`,
             question: input.question,
             context: input.context ?? "",
@@ -709,7 +711,7 @@ export class FactoryEngine {
         item,
         threadId,
         projectId: binding.projectId,
-        kind: input.testing === true ? "test" : "question",
+        kind: input.testing === true ? "test" : input.todo === true ? "todo" : "question",
         from,
         question: input.question,
         context: input.context ?? "",

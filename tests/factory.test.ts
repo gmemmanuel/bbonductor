@@ -440,12 +440,16 @@ describe("founder inbox", () => {
     await t.rpc("answer", { entryId: entry.id, answer: "Undo is missing." });
     expect(t.sent.at(-1)).toMatchObject({ threadId: "th_1" });
 
+    // Something he simply has to do is a to-do, including when the chief of staff files it.
+    await t.tool("factory_ask_founder", "th_1", { question: "Record the menu transition on your phone", todo: true });
+    expect((await t.state()).inbox.map((item) => item.kind)).toContain("todo");
+
     // An entry filed under the wrong kind can be corrected.
     await t.tool("factory_ask_founder", "th_1", { question: "Try it again" });
-    const wrong = (await t.state()).inbox[0]!;
-    expect(wrong.kind).toBe("question");
-    await t.harness.behavior.runCli(["retag", wrong.id, "test"], { projectId: PROJECT });
-    expect((await t.state()).inbox[0]!.kind).toBe("test");
+    const find = async () => (await t.state()).inbox.find((item) => item.question === "Try it again")!;
+    expect((await find()).kind).toBe("question");
+    await t.harness.behavior.runCli(["retag", (await find()).id, "test"], { projectId: PROJECT });
+    expect((await find()).kind).toBe("test");
   });
 
   it("lets a standing agent ask the founder directly", async () => {
