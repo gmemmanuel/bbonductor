@@ -140,6 +140,44 @@ async function runButtonChecks(entry) {
     check("the mark clears when Run stops", cleared);
     const runLabel = await button.filter({ hasText: "Run" }).waitFor({ timeout: 15_000 }).then(() => true, () => false);
     check("the button reads Run again", runLabel);
+
+    // --- the reply box on that entry
+    const reply = page.locator('[data-testid="inbox-reply"]').last();
+    const oneLine = (await reply.boundingBox()).height;
+    await reply.fill("The name is right.\nThe spacing under it is too tight.\nSee the picture.\nFourth line.");
+    const grew = await until(async () => ((await reply.boundingBox()).height > oneLine * 2 ? true : null), 5_000);
+    check("the reply box grows as the founder types more lines", grew === true);
+    writeFileSync(join(work, "shot.png"), Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==", "base64"));
+    await page.locator('[data-testid="inbox-attach-input"]').last().setInputFiles(join(work, "shot.png"));
+    const attached = await page.locator('[data-testid="inbox-attachments"]').getByText("shot.png").waitFor({ timeout: 15_000 }).then(() => true, () => false);
+    check("a picture can be attached to the reply", attached);
+    await page.reload();
+    const kept = await until(async () => ((await page.locator('[data-testid="inbox-reply"]').last().inputValue().catch(() => "")).includes("spacing under it") ? true : null), 20_000);
+    const keptFile = (await page.locator('[data-testid="inbox-attachments"]').getByText("shot.png").count()) > 0;
+    check("the draft and its attachment survive leaving the page", kept === true && keptFile);
+    await page.locator('[data-testid="inbox-open-thread"]').last().click();
+    const composer = page.getByText("The spacing under it is too tight.").first();
+    const carried = await composer.waitFor({ timeout: 20_000 }).then(() => true, () => false);
+    check("opening the thread brings the draft into its composer", carried && page.url().includes(entry.threadId), page.url());
+    const banner = await page.locator('[data-testid="inbox-banner"]').getByText("Try it before it ships").first().waitFor({ timeout: 15_000 }).then(() => true, () => false);
+    check("the thread shows what the founder was asked, above its composer", banner);
+    await page.screenshot({ path: join(work, "draft-in-thread.png") });
+    await page.goto(`http://127.0.0.1:${PORT}/plugins/bbonductor/factory`);
+    const again = page.locator('[data-testid="inbox-reply"]').last();
+    await again.waitFor({ timeout: 30_000 });
+    check("the draft has moved, not been copied: the inbox box is empty again", (await again.inputValue()) === "");
+
+    // Answering from the inbox sends the words and the picture to the thread.
+    // Done on the stalled entry, so the ticket under test stays where it is.
+    const stalled = status().inbox.find((e) => e.kind === "stalled");
+    const card = page.locator('[data-testid="inbox-entry"]').filter({ hasText: stalled.question });
+    await card.locator('[data-testid="inbox-reply"]').fill("Carry on from the last step.");
+    await card.locator('[data-testid="inbox-attach-input"]').setInputFiles(join(work, "shot.png"));
+    await card.locator('[data-testid="inbox-attachments"]').getByText("shot.png").waitFor({ timeout: 15_000 });
+    await page.screenshot({ path: join(work, "reply-box.png") });
+    await card.getByRole("button", { name: "Send", exact: true }).click();
+    const delivered = await until(() => (lastMessage(stalled.threadId).includes("Carry on from the last step.") ? true : null));
+    check("an answer with a picture attached reaches the thread", delivered === true && !status().inbox.some((e) => e.id === stalled.id), bb(["thread", "log", stalled.threadId]).slice(-600));
   } finally {
     await browser.close();
   }

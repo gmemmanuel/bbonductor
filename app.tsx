@@ -1,21 +1,22 @@
 // Factory — frontend entry. One page: the founder's inbox on top, the
 // swimlanes under it, then who plays each role and the standing agents.
 // React and @get-bb/plugin-sdk/app are provided by bb at load time.
-import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from "react";
-import type { FormEvent, ReactNode } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import type { ClipboardEvent, DragEvent, FormEvent, KeyboardEvent, ReactNode } from "react";
 import {
   Markdown,
   definePluginApp,
   useBbNavigate,
+  useComposer,
+  useComposers,
   useRealtime,
   useRpc,
   useSdk,
 } from "@get-bb/plugin-sdk/app";
 import type { FactoryState, rpcContract } from "./server";
-import type { Config, InboxEntry, Item, Role } from "./src/factory/model";
+import type { Attachment, Config, InboxEntry, Item, Role } from "./src/factory/model";
 import { RUN_SETTINGS_FILE, RUN_TERMINAL_TITLE, parseRunCommand } from "./src/factory/runScript";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 
 const CHANGED = "factory-changed";
@@ -205,10 +206,143 @@ function useRunsBeside(threadId: string): readonly RunSession[] {
   );
 }
 
+/**
+ * What the founder has written on an inbox entry and not yet sent. Kept in the
+ * browser so it survives leaving the page, and handed to the thread's own
+ * composer when he opens the thread instead of answering here.
+ */
+interface ReplyDraft {
+  text: string;
+  attachments: Attachment[];
+}
+const DRAFT_KEY = "bbonductor.factory.draft.";
+const NO_DRAFT: ReplyDraft = { text: "", attachments: [] };
+const isBlank = (draft: ReplyDraft) => draft.text.trim() === "" && draft.attachments.length === 0;
+
+function readDraft(entryId: string): ReplyDraft {
+  try {
+    const saved: unknown = JSON.parse(localStorage.getItem(DRAFT_KEY + entryId) ?? "null");
+    if (typeof saved !== "object" || saved === null) return NO_DRAFT;
+    const { text, attachments } = saved as Partial<ReplyDraft>;
+    return { text: typeof text === "string" ? text : "", attachments: Array.isArray(attachments) ? attachments : [] };
+  } catch {
+    return NO_DRAFT;
+  }
+}
+
+function writeDraft(entryId: string, draft: ReplyDraft) {
+  try {
+    if (isBlank(draft)) localStorage.removeItem(DRAFT_KEY + entryId);
+    else localStorage.setItem(DRAFT_KEY + entryId, JSON.stringify(draft));
+  } catch {
+    // A full or blocked store only costs the draft its persistence.
+  }
+}
+
+function useReplyDraft(entryId: string) {
+  const [draft, setDraft] = useState(() => readDraft(entryId));
+  const update = useCallback(
+    (next: (current: ReplyDraft) => ReplyDraft) =>
+      setDraft((current) => {
+        const value = next(current);
+        writeDraft(entryId, value);
+        return value;
+      }),
+    [entryId],
+  );
+  return [draft, update] as const;
+}
+
+interface Handoff {
+  entryId: string;
+  threadId: string;
+  draft: ReplyDraft;
+  tries: number;
+}
+let handoff: Handoff | null = null;
+const handoffListeners = new Set<() => void>();
+function setHandoff(next: Handoff | null) {
+  handoff = next;
+  for (const listener of handoffListeners) listener();
+}
+
+/**
+ * Moves an inbox draft into the thread's composer once that composer is on
+ * screen. The inbox copy is cleared only after the composer shows it, so a
+ * draft is never lost between the two.
+ */
+function DraftHandoff() {
+  const composers = useComposers();
+  const pending = useSyncExternalStore(
+    (listener) => {
+      handoffListeners.add(listener);
+      return () => handoffListeners.delete(listener);
+    },
+    () => handoff,
+  );
+  useEffect(() => {
+    if (pending === null) return;
+    const composer = composers.find((candidate) => candidate.scope.kind === "thread" && candidate.scope.threadId === pending.threadId);
+    if (composer === undefined) return;
+    const missing = pending.draft.attachments.filter((file) => !composer.draft.attachments.some((present) => present.path === file.path));
+    if (composer.text.includes(pending.draft.text) && missing.length === 0) {
+      writeDraft(pending.entryId, NO_DRAFT);
+      setHandoff(null);
+      return;
+    }
+    if (pending.tries >= 3) {
+      setHandoff(null);
+      return;
+    }
+    pending.tries += 1;
+    composer.replace((current) => ({
+      text: current.text.includes(pending.draft.text) ? current.text : current.text.trim() === "" ? pending.draft.text : `${current.text}\n\n${pending.draft.text}`,
+      mentions: current.mentions,
+      attachments: [...current.attachments, ...missing],
+    }));
+  }, [composers, pending]);
+  return null;
+}
+
 type Rpc = ReturnType<typeof useRpc<typeof rpcContract>>;
 interface Catalog {
   providers: { id: string; name: string }[];
   models: { providerId: string; id: string; name: string; reasoning: string[] }[];
+}
+
+/**
+ * What the founder was asked, shown above the composer of the thread it is
+ * about. The chief of staff writes most asks from its own thread, so without
+ * this the thread he opens to answer in would not show the question.
+ */
+function InboxBanner() {
+  const composer = useComposer();
+  const rpc = useRpc<typeof rpcContract>();
+  const threadId = composer.scope.kind === "thread" ? composer.scope.threadId : null;
+  const [entries, setEntries] = useState<InboxEntry[]>([]);
+  const refetch = useCallback(() => {
+    if (threadId === null) return;
+    rpc.call("state", { projectId: null }).then(
+      (state) => setEntries(state.inbox.filter((entry) => entry.threadId === threadId && entry.kind !== "interaction")),
+      () => undefined,
+    );
+  }, [rpc, threadId]);
+  useEffect(refetch, [refetch]);
+  useRealtime(CHANGED, refetch);
+  if (entries.length === 0) return null;
+  return (
+    <div className="max-h-64 space-y-3 overflow-y-auto rounded-lg border border-border bg-card p-3" data-testid="inbox-banner">
+      {entries.map((entry) => (
+        <div key={entry.id} className="space-y-1">
+          <p className="text-xs text-muted-foreground">Waiting for you · {KIND_LABEL[entry.kind]}</p>
+          <p className="text-sm font-semibold">{entry.question}</p>
+          {entry.context === "" ? null : <Markdown content={entry.context} className="text-sm" />}
+          {entry.options.length === 0 ? null : <Markdown content={entry.options.map((option, index) => `${String.fromCharCode(65 + index)}. ${option}`).join("\n\n")} className="text-sm" />}
+          {entry.recommendation === "" ? null : <Markdown content={`**Recommendation:** ${entry.recommendation}`} className="text-sm" />}
+        </div>
+      ))}
+    </div>
+  );
 }
 
 function useFactory() {
@@ -278,12 +412,63 @@ function InboxCard({ entry, ticket, title, rpc, run }: { entry: InboxEntry; tick
   const navigate = useBbNavigate();
   const sdk = useSdk();
   const running = useRunsBeside(entry.threadId);
-  const [answer, setAnswer] = useState("");
+  const [draft, setDraft] = useReplyDraft(entry.id);
+  const [uploading, setUploading] = useState(0);
+  const box = useRef<HTMLTextAreaElement>(null);
+  const picker = useRef<HTMLInputElement>(null);
+  const setAnswer = (text: string) => setDraft((current) => ({ ...current, text }));
+  // Grow with the text, up to about a dozen lines, then scroll.
+  useLayoutEffect(() => {
+    const element = box.current;
+    if (element === null) return;
+    element.style.height = "auto";
+    element.style.height = `${Math.min(element.scrollHeight + 2, 320)}px`;
+  }, [draft.text]);
+  const attach = (files: readonly File[]) => {
+    if (files.length === 0) return;
+    setUploading((count) => count + files.length);
+    run(
+      Promise.all(
+        files.map((file) =>
+          sdk.projects.attachments
+            .upload({ projectId: entry.projectId, clientFile: file })
+            .then((uploaded) => setDraft((current) => ({ ...current, attachments: [...current.attachments, uploaded] })))
+            .finally(() => setUploading((count) => count - 1)),
+        ),
+      ),
+    );
+  };
+  const ready = !isBlank(draft) && uploading === 0;
+  const submit = () => {
+    if (!ready) return;
+    if (handoff?.entryId === entry.id) setHandoff(null);
+    run(rpc.call("answer", { entryId: entry.id, answer: draft.text, attachments: draft.attachments }).then(() => setDraft(() => NO_DRAFT)));
+  };
   const send = (event: FormEvent) => {
     event.preventDefault();
-    if (answer.trim() === "") return;
-    run(rpc.call("answer", { entryId: entry.id, answer }));
-    setAnswer("");
+    submit();
+  };
+  // Enter sends, as in bb's own composer; on a phone it is a new line and the button sends.
+  const onKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
+    if (event.key !== "Enter" || event.shiftKey || event.nativeEvent.isComposing) return;
+    if (typeof matchMedia !== "undefined" && matchMedia("(pointer: coarse)").matches) return;
+    event.preventDefault();
+    submit();
+  };
+  const onPaste = (event: ClipboardEvent<HTMLTextAreaElement>) => {
+    const files = Array.from(event.clipboardData.files);
+    if (files.length === 0) return;
+    event.preventDefault();
+    attach(files);
+  };
+  const onDrop = (event: DragEvent<HTMLFormElement>) => {
+    if (event.dataTransfer.files.length === 0) return;
+    event.preventDefault();
+    attach(Array.from(event.dataTransfer.files));
+  };
+  const openThread = () => {
+    if (!isBlank(draft)) setHandoff({ entryId: entry.id, threadId: entry.threadId, draft, tries: 0 });
+    navigate.toThread(entry.threadId);
   };
   const urgent = entry.kind === "failed" || entry.kind === "stalled";
   return (
@@ -322,18 +507,55 @@ function InboxCard({ entry, ticket, title, rpc, run }: { entry: InboxEntry; tick
       {entry.recommendation === "" ? null : (
         <Markdown content={`**Recommendation:** ${entry.recommendation}`} className="text-sm" />
       )}
-      <form onSubmit={send} className="flex flex-wrap items-center gap-2">
+      <form onSubmit={send} onDrop={onDrop} onDragOver={(event) => event.preventDefault()} className="flex flex-wrap items-center gap-2">
         {entry.kind === "interaction" ? null : (
           <>
-            <Input
-              value={answer}
+            <textarea
+              ref={box}
+              rows={1}
+              value={draft.text}
               onChange={(event) => setAnswer(event.target.value)}
+              onKeyDown={onKeyDown}
+              onPaste={onPaste}
               placeholder={entry.kind === "question" ? "Your decision" : entry.kind === "test" ? "Anything wrong? (goes to the builder)" : entry.kind === "todo" ? "Done? Add anything the agent should know" : entry.kind === "check" ? "What to change (sends it back to the builder)" : "Tell the agent what to do"}
               aria-label={`Answer ${entry.from}`}
-              className="h-10 w-full basis-full text-base sm:h-9 sm:w-auto sm:min-w-48 sm:flex-1 sm:basis-0 sm:text-sm"
+              data-testid="inbox-reply"
+              className="min-h-10 w-full basis-full resize-none rounded-md border border-input bg-transparent px-3 py-2 text-base shadow-xs outline-none placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 sm:min-h-9 sm:text-sm"
             />
-            <Button type="submit" size="sm" variant={entry.kind === "check" ? "outline" : "default"} className="h-10 flex-1 sm:h-8 sm:flex-none" disabled={answer.trim() === ""}>
+            {draft.attachments.length === 0 && uploading === 0 ? null : (
+              <ul className="flex basis-full flex-wrap gap-1.5 text-xs" data-testid="inbox-attachments">
+                {draft.attachments.map((file) => (
+                  <li key={file.path} className="flex items-center gap-1 rounded bg-secondary px-2 py-1 text-secondary-foreground">
+                    <span className="max-w-48 truncate">{file.name}</span>
+                    <button
+                      type="button"
+                      aria-label={`Remove ${file.name}`}
+                      className="text-muted-foreground hover:text-foreground"
+                      onClick={() => setDraft((current) => ({ ...current, attachments: current.attachments.filter((kept) => kept.path !== file.path) }))}
+                    >
+                      ×
+                    </button>
+                  </li>
+                ))}
+                {uploading === 0 ? null : <li className="px-2 py-1 text-muted-foreground">Uploading…</li>}
+              </ul>
+            )}
+            <input
+              ref={picker}
+              type="file"
+              multiple
+              hidden
+              data-testid="inbox-attach-input"
+              onChange={(event) => {
+                attach(Array.from(event.target.files ?? []));
+                event.target.value = "";
+              }}
+            />
+            <Button type="submit" size="sm" variant={entry.kind === "check" ? "outline" : "default"} className="h-10 flex-1 sm:h-8 sm:flex-none" disabled={!ready}>
               {entry.kind === "check" ? "Send back" : "Send"}
+            </Button>
+            <Button type="button" size="sm" variant="outline" className="h-10 flex-1 sm:h-8 sm:flex-none" onClick={() => picker.current?.click()}>
+              Attach
             </Button>
           </>
         )}
@@ -360,7 +582,7 @@ function InboxCard({ entry, ticket, title, rpc, run }: { entry: InboxEntry; tick
           </Button>
         ) : null}
         {entry.threadId === "" ? null : (
-          <Button type="button" size="sm" variant="outline" onClick={() => navigate.toThread(entry.threadId)}>
+          <Button type="button" size="sm" variant="outline" data-testid="inbox-open-thread" onClick={openThread}>
             Open thread
           </Button>
         )}
@@ -820,6 +1042,8 @@ function useInboxBadge() {
 export default definePluginApp((app) => {
   app.slots.experimental_appOverlay({ id: "inbox-chime", component: InboxChime });
   app.slots.experimental_appOverlay({ id: "run-watch", component: RunWatch });
+  app.slots.experimental_appOverlay({ id: "draft-handoff", component: DraftHandoff });
+  app.composer.customize({ id: "inbox", scopes: ["thread"], banners: [{ id: "waiting", chrome: "bare", component: InboxBanner }] });
   app.contentScripts.register({
     id: "run-marks",
     mount(context) {

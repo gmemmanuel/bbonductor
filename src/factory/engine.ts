@@ -18,6 +18,7 @@ import {
   fillTemplate,
   type AgentState,
   type Config,
+  type Attachment,
   type InboxEntry,
   type InboxKind,
   type Item,
@@ -43,7 +44,7 @@ export interface SpawnRequest {
 
 export interface Effects {
   spawn(request: SpawnRequest): Promise<{ threadId: string; environmentId: string | null }>;
-  send(threadId: string, text: string, senderThreadId?: string): Promise<void>;
+  send(threadId: string, text: string, senderThreadId?: string, attachments?: readonly Attachment[]): Promise<void>;
   retry(threadId: string): Promise<void>;
   /** Change the model an existing thread runs on. */
   switchModel(threadId: string, model: string, reasoningLevel: string): Promise<void>;
@@ -809,10 +810,11 @@ export class FactoryEngine {
     });
   }
 
-  answer(entryId: string, answer: string): Promise<InboxEntry> {
+  answer(entryId: string, answer: string, attachments: readonly Attachment[] = []): Promise<InboxEntry> {
     return this.exclusive(async () => {
       const entry = this.requireOpenEntry(entryId);
-      const text = answer.trim();
+      // A recording or a screenshot can be the whole answer.
+      const text = answer.trim() || (attachments.length > 0 ? "See the attached." : "");
       if (text === "") throw new FactoryError("An answer cannot be empty.");
       if (entry.kind === "check") {
         // Notes on a check send the ticket back to whoever built it.
@@ -827,6 +829,8 @@ export class FactoryEngine {
         await this.effects.send(
           authorThread,
           `The founder tried ${item.key} and wants changes before it ships:\n\n${text}\n\nMake them, verify, then call factory_stage_done again with an updated founder_check.`,
+          undefined,
+          attachments,
         );
         this.store.saveItem({ ...item, status: "running", nudged: false, stageIndex: author });
         const sent = this.store.saveInbox({ ...entry, status: "answered", answer: text, resolvedAt: Date.now() });
@@ -835,7 +839,11 @@ export class FactoryEngine {
       }
       await this.effects.send(
         entry.threadId,
-        `Founder answer to "${entry.question}":\n\n${text}`,
+        // The whole ask goes with the answer: when the chief of staff wrote
+        // it, this thread has never seen what the founder actually read.
+        `${[`The founder was asked: "${entry.question}"`, entry.context.trim()].filter((part) => part !== "").join("\n\n")}\n\nFounder answer:\n\n${text}`,
+        undefined,
+        attachments,
       );
       const saved = this.store.saveInbox({
         ...entry,

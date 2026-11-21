@@ -16,6 +16,7 @@ import {
 } from "./src/factory/engine.js";
 import {
   agentStateSchema,
+  attachmentSchema,
   configSchema,
   inboxSchema,
   itemSchema,
@@ -82,7 +83,7 @@ export const rpcContract = defineRpcContract({
   reorder: { input: itemRef.extend({ direction: z.enum(["up", "down"]) }), output: itemSchema },
   reorderBefore: { input: itemRef.extend({ beforeId: z.string().nullable() }), output: itemSchema },
   cancel: { input: itemRef, output: itemSchema },
-  answer: { input: entryRef.extend({ answer: z.string().trim().min(1).max(8000) }), output: inboxSchema },
+  answer: { input: entryRef.extend({ answer: z.string().trim().max(8000), attachments: z.array(attachmentSchema).max(10).optional() }), output: inboxSchema },
   dismiss: { input: entryRef, output: inboxSchema },
   retry: { input: entryRef, output: inboxSchema },
   approve: { input: entryRef, output: itemSchema },
@@ -173,11 +174,11 @@ export default async function plugin(bb: BbPluginApi) {
       if (request.target.type === "main-checkout") void nameAgentsWorkspace(thread.id);
       return { threadId: thread.id, environmentId: thread.environmentId };
     },
-    async send(threadId, text, senderThreadId) {
+    async send(threadId, text, senderThreadId, attachments = []) {
       await bb.sdk.threads.send({
         threadId,
         mode: "auto",
-        input: [{ type: "text", text, mentions: [] }],
+        input: [{ type: "text", text, mentions: [] }, ...attachments],
         ...(senderThreadId === undefined ? {} : { senderThreadId }),
       });
     },
@@ -560,7 +561,7 @@ export default async function plugin(bb: BbPluginApi) {
     reorder: ({ itemId, direction }) => engine.reorder(itemId, direction),
     reorderBefore: ({ itemId, beforeId }) => engine.reorderBefore(itemId, beforeId),
     cancel: ({ itemId }) => engine.cancel(itemId),
-    answer: ({ entryId, answer }) => engine.answer(entryId, answer),
+    answer: ({ entryId, answer, attachments }) => engine.answer(entryId, answer, attachments),
     dismiss: ({ entryId }) => engine.dismiss(entryId),
     retry: ({ entryId }) => engine.retry(entryId),
     approve: ({ entryId }) => engine.approveCheck(entryId),

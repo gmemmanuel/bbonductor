@@ -96,6 +96,8 @@ A standing agent is a pinned thread in the project's main checkout, started from
 - `experimental_appOverlay` also mounts the Run watcher, which lists each thread's terminals and listens to `thread:changed` for `terminals-changed`.
 - `app.contentScripts` with `experimental_setThreadRowStatus` puts the "Run is up" mark on a thread row. It is the only way a plugin can decorate a row, and it has no SDK client, so it hands its setter to the overlay.
 - `navigate.experimental_openTerminal` shows the Run terminal beside the Factory page.
+- `useComposers()` finds the thread's composer once it is on screen, and `composer.replace` puts an inbox draft into it. `app.composer.customize({ banners })` shows the open ask above a thread's composer.
+- `sdk.projects.attachments.upload` stores a file the founder attaches; the uploaded record is passed to `threads.send` as an input part.
 
 - `app.slots.navPanel({ experimental_useBadge })` for the rail count.
 - `threads.interactions.list` result shape is read defensively.

@@ -25,6 +25,14 @@ In rough order.
 
 ## Log
 
+### 20 November 2026 (tenth session): inbox reply box
+
+- **The reply box on an inbox entry** grows as the founder types, takes attachments (button, paste or drop), keeps its draft in the browser, and hands the draft to the thread's composer on Open thread. Enter sends on a computer; on a phone Enter is a new line.
+- **An answer can carry files**, and a file alone can be the answer.
+- **The open ask shows above the composer of the thread it is about**, and the whole ask is sent with the answer.
+- **Checked:** 60 behaviour tests, 43 live checks (seven new ones in a real browser). **Not checked:** a real video from a phone, upload size limits, and the banner inside the founder's Conductor layout.
+- **Not done:** answering in the thread itself does not clear the inbox entry.
+
 ### 20 November 2026 (ninth session): Run from the inbox
 
 - **Run button on inbox entries the founder has to try** (to-do, test, try before it ships). It starts the project's Run command in that ticket's workspace and shows the terminal beside the inbox; it reads Stop while that workspace is running.

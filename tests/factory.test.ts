@@ -27,7 +27,7 @@ interface Spawned {
 
 function setup() {
   const spawned: Spawned[] = [];
-  const sent: { threadId: string; text: string; senderThreadId?: string }[] = [];
+  const sent: { threadId: string; text: string; senderThreadId?: string; attachments?: unknown[] }[] = [];
   const retried: string[] = [];
   const archived: string[] = [];
   const updated: { threadId: string; model?: string; reasoningLevel?: string }[] = [];
@@ -61,7 +61,7 @@ function setup() {
           });
         },
         send: async (args: { threadId: string; input: { text: string }[]; senderThreadId?: string }) => {
-          sent.push({ threadId: args.threadId, text: args.input[0]!.text, senderThreadId: args.senderThreadId });
+          sent.push({ threadId: args.threadId, text: args.input[0]!.text, senderThreadId: args.senderThreadId, ...(args.input.length > 1 ? { attachments: args.input.slice(1) } : {}) });
           return { ok: true, delivery: "sent" };
         },
         retry: async (args: { threadId: string }) => {
@@ -407,6 +407,9 @@ describe("founder inbox", () => {
     expect((await t.item("JUS-1")).status).toBe("needs-founder");
 
     await t.rpc("answer", { entryId: before.inbox[0]!.id, answer: "Count it as missed." });
+    // The thread gets the ask as the founder read it, not only his answer.
+    expect(t.sent.at(-1)!.text).toContain('The founder was asked: "Should a skipped run count as a rest day?"');
+    expect(t.sent.at(-1)!.text).toContain("Du skipped Tuesday; today Coach counts it as rest.");
     expect(t.sent.at(-1)).toMatchObject({ threadId: "th_1" });
     expect(t.sent.at(-1)!.text).toContain("Count it as missed.");
     expect((await t.state()).inbox).toHaveLength(0);
@@ -456,6 +459,22 @@ describe("founder inbox", () => {
     expect((await find()).kind).toBe("question");
     await t.harness.behavior.runCli(["retag", (await find()).id, "test"], { projectId: PROJECT });
     expect((await find()).kind).toBe("test");
+  });
+
+  it("sends the files the founder attached to an answer along with it, and lets a file be the whole answer", async () => {
+    const planner = await t.rpc<{ threadId: string }>("startAgent", { projectId: PROJECT, agentId: "orchestrator" });
+    await t.tool("factory_ask_founder", planner.threadId, { kind: "todo", question: "Record the menu on your phone" });
+    const entry = (await t.state()).inbox[0]!;
+    const video = { type: "localFile", path: "uploads/menu.mov", name: "menu.mov", mimeType: "video/quicktime", sizeBytes: 1200 };
+    await t.rpc("answer", { entryId: entry.id, answer: "", attachments: [video] });
+    expect(t.sent.at(-1)).toMatchObject({ threadId: entry.threadId, attachments: [video] });
+    expect(t.sent.at(-1)!.text).toContain("See the attached.");
+    expect((await t.state()).inbox).toEqual([]);
+
+    // With neither words nor a file there is nothing to send.
+    await t.tool("factory_ask_founder", planner.threadId, { kind: "todo", question: "Record it again" });
+    const again = (await t.state()).inbox[0]!;
+    await expect(t.rpc("answer", { entryId: again.id, answer: "  " })).rejects.toThrow();
   });
 
   it("lets a standing agent ask the founder directly", async () => {
