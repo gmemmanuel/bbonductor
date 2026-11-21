@@ -27,6 +27,12 @@ In rough order.
 
 ## Log
 
+### 21 November 2026 (fifth session): panel layout, swimlane columns
+
+- The inbox panel resizes by dragging its left edge (arrow keys and double-click too) and keeps its width. Its list keeps at least 320 pixels.
+- In the panel: + (attach), Send, Dismiss on one row; Run and Open thread pinned bottom right. Swimlanes: "Right now" is now "In Progress", between Next up and Done.
+- **Checked:** 73 behaviour tests, 62 live checks (new: row order, footer position, drag and reload keeps width, column headers), screenshots. **Not checked:** the panel on a phone.
+
 ### 21 November 2026 (fourth session): inbox cards
 
 - Inbox rebuilt as two columns of small cards that open a pop-up with the whole entry; shipping takes two presses. The check's question no longer repeats the ticket's name.

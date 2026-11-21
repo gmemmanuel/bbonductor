@@ -2,7 +2,7 @@
 // swimlanes under it, then who plays each role and the standing agents.
 // React and @get-bb/plugin-sdk/app are provided by bb at load time.
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
-import type { ClipboardEvent, DragEvent, FormEvent, KeyboardEvent, ReactNode } from "react";
+import type { CSSProperties, ClipboardEvent, DragEvent, FormEvent, KeyboardEvent, PointerEvent as ReactPointerEvent, ReactNode } from "react";
 import {
   Markdown,
   definePluginApp,
@@ -24,6 +24,11 @@ const PROJECT_KEY = "bbonductor.factory.project";
 const INBOX_ARRIVED = "factory-inbox-arrived";
 const CHIME_KEY = "bbonductor.factory.chime";
 const OPEN_KEY = "bbonductor.factory.inbox.open";
+const PANEL_WIDTH_KEY = "bbonductor.factory.inbox.width";
+const PANEL_DEFAULT = 544;
+const PANEL_MIN = 360;
+/** The inbox list keeps at least this much room beside the panel. */
+const LIST_MIN = 320;
 
 /**
  * Two soft, falling bell notes, like a station announcement chime. Made with
@@ -506,7 +511,7 @@ function InboxTile({ entry, ticket, title, active, onOpen }: { entry: InboxEntry
   );
 }
 
-/** Everything about one entry: the full text, the reply box and every action. Shown in a pop-up. */
+/** Everything about one entry: the full text, the reply box and every action. Fills the inbox panel below its header. */
 function InboxCard({ entry, rpc, run }: { entry: InboxEntry; rpc: Rpc; run: (work: Promise<unknown>) => void }) {
   const [confirmShip, setConfirmShip] = useState(false);
   const navigate = useBbNavigate();
@@ -571,8 +576,10 @@ function InboxCard({ entry, rpc, run }: { entry: InboxEntry; rpc: Rpc; run: (wor
     navigate.toThread(entry.threadId);
   };
   const urgent = entry.kind === "failed" || entry.kind === "stalled";
+  const canRun = entry.threadId !== "" && (entry.kind === "todo" || entry.kind === "test" || entry.kind === "check");
   return (
-    <div className="space-y-3" data-testid="inbox-entry">
+    <>
+      <div className="min-h-0 flex-1 space-y-3 overflow-y-auto px-5 py-4" data-testid="inbox-entry">
       {entry.kind === "check" ? null : <p className="text-sm font-semibold leading-snug">{entry.question}</p>}
       {entry.context === "" ? null : <Markdown content={entry.context} className="text-sm" />}
       {entry.options.length === 0 ? null : (
@@ -639,21 +646,35 @@ function InboxCard({ entry, rpc, run }: { entry: InboxEntry; rpc: Rpc; run: (wor
                 event.target.value = "";
               }}
             />
+            {/* Attach sits left of Send, Dismiss right of it, as in a chat composer. */}
+            <Button
+              type="button"
+              size="sm"
+              variant="ghost"
+              className="h-10 w-10 shrink-0 p-0 text-muted-foreground sm:h-8 sm:w-8"
+              aria-label="Attach files"
+              data-testid="inbox-attach"
+              onClick={() => picker.current?.click()}
+            >
+              <svg viewBox="0 0 16 16" aria-hidden="true" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round">
+                <path d="M8 3v10M3 8h10" />
+              </svg>
+            </Button>
             <Button type="submit" size="sm" variant={entry.kind === "check" ? "outline" : "default"} className="h-10 flex-1 sm:h-8 sm:flex-none" disabled={!ready}>
               {entry.kind === "check" ? "Send back" : "Send"}
             </Button>
-            <Button type="button" size="sm" variant="ghost" className="h-10 flex-1 text-muted-foreground sm:h-8 sm:flex-none" onClick={() => picker.current?.click()}>
-              Attach
-            </Button>
           </>
         )}
+        <Button type="button" size="sm" variant="ghost" className="h-10 text-muted-foreground sm:h-8" data-testid="inbox-dismiss" onClick={() => run(rpc.call("dismiss", { entryId: entry.id }))}>
+          Dismiss
+        </Button>
         {entry.kind === "check" ? (
           // Shipping takes two presses, so a stray click cannot release anything.
           <Button
             type="button"
             size="sm"
             variant={confirmShip ? "destructive" : "default"}
-            className="h-10 flex-1 sm:h-8 sm:flex-none"
+            className="ml-auto h-10 sm:h-8"
             data-testid="inbox-approve"
             onClick={() => {
               if (confirmShip) run(rpc.call("approve", { entryId: entry.id }));
@@ -665,34 +686,35 @@ function InboxCard({ entry, rpc, run }: { entry: InboxEntry; rpc: Rpc; run: (wor
           </Button>
         ) : null}
         {entry.kind === "failed" ? (
-          <Button type="button" size="sm" variant="outline" onClick={() => run(rpc.call("retry", { entryId: entry.id }))}>
+          <Button type="button" size="sm" variant="outline" className="ml-auto" onClick={() => run(rpc.call("retry", { entryId: entry.id }))}>
             Retry
           </Button>
         ) : null}
-        {/* The quiet actions get a row of their own, so the main one is never beside Dismiss. */}
-        <span className="basis-full" />
-        {entry.threadId !== "" && (entry.kind === "todo" || entry.kind === "test" || entry.kind === "check") ? (
-          <Button
-            type="button"
-            size="sm"
-            variant="outline"
-            className="h-10 flex-1 sm:h-8 sm:flex-none"
-            data-testid="inbox-run"
-            onClick={() => run(running.length > 0 ? stopRuns(sdk, running) : runInWorkspace(sdk, navigate, entry.threadId))}
-          >
-            {running.length > 0 ? "Stop" : "Run"}
-          </Button>
-        ) : null}
-        {entry.threadId === "" ? null : (
-          <Button type="button" size="sm" variant="ghost" className="text-muted-foreground" data-testid="inbox-open-thread" onClick={openThread}>
-            Open thread
-          </Button>
-        )}
-        <Button type="button" size="sm" variant="ghost" className="text-muted-foreground" onClick={() => run(rpc.call("dismiss", { entryId: entry.id }))}>
-          Dismiss
-        </Button>
       </form>
-    </div>
+      </div>
+      {/* Leaving the inbox (the thread, the app) is pinned to the panel's bottom right. */}
+      {!canRun && entry.threadId === "" ? null : (
+        <div className="flex shrink-0 justify-end gap-2 border-t border-border px-5 py-3" data-testid="inbox-panel-footer">
+          {canRun ? (
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              className="h-10 sm:h-8"
+              data-testid="inbox-run"
+              onClick={() => run(running.length > 0 ? stopRuns(sdk, running) : runInWorkspace(sdk, navigate, entry.threadId))}
+            >
+              {running.length > 0 ? "Stop" : "Run"}
+            </Button>
+          ) : null}
+          {entry.threadId === "" ? null : (
+            <Button type="button" size="sm" variant="outline" className="h-10 sm:h-8" data-testid="inbox-open-thread" onClick={openThread}>
+              Open thread
+            </Button>
+          )}
+        </div>
+      )}
+    </>
   );
 }
 
@@ -859,21 +881,21 @@ function Swimlanes({ state, rpc, run }: { state: FactoryState; rpc: Rpc; run: (w
           <thead className="bg-secondary/40 text-xs text-muted-foreground">
             <tr>
               <th className="w-24 px-3 py-2 font-medium">Track</th>
-              <th className="px-3 py-2 font-medium">Right now</th>
               <th className="px-3 py-2 font-medium">Next up</th>
+              <th className="px-3 py-2 font-medium">In Progress</th>
               <th className="px-3 py-2 font-medium">Done</th>
             </tr>
           </thead>
           <tbody>
             {lanes.map((lane) => {
               const inLane = open.filter((item) => item.lane === lane);
-              // "Right now" is the ticket in flight; a lane with only waiting tickets has none.
+              // "In Progress" is the ticket in flight; a lane with only waiting tickets has none.
               const head = inLane.find((item) => item.status !== "queued");
               return (
                 <tr key={lane} className="border-t border-border align-top" data-testid="lane">
                   <td className="px-3 py-3 text-sm font-medium">{lane}</td>
-                  <td className="px-3 py-3">{head === undefined ? null : card(head)}</td>
                   <td className="space-y-2 px-3 py-3">{inLane.filter((item) => item !== head).map(card)}</td>
+                  <td className="px-3 py-3" data-testid="in-progress-column">{head === undefined ? null : card(head)}</td>
                   <td className="space-y-2 px-3 py-3" data-testid="done-column">{finished.filter((item) => item.lane === lane).map(card)}</td>
                 </tr>
               );
@@ -1100,8 +1122,82 @@ function ProjectPicker({ state, selectProject }: { state: FactoryState; selectPr
 
 const Loading = ({ error }: { error: string | null }) => <div className="p-5 text-sm text-muted-foreground">{error ?? "Loading the factory…"}</div>;
 
+/**
+ * The inbox panel's width, dragged from its left edge and remembered. Arrow
+ * keys move the edge too, and a double-click puts it back.
+ */
+function usePanelWidth() {
+  const [width, setWidth] = useState(() => {
+    const saved = typeof localStorage === "undefined" ? NaN : Number(localStorage.getItem(PANEL_WIDTH_KEY));
+    return Number.isFinite(saved) && saved >= PANEL_MIN ? saved : PANEL_DEFAULT;
+  });
+  const clamp = (next: number, panel: HTMLElement | null) => {
+    const room = panel?.parentElement?.getBoundingClientRect().width ?? window.innerWidth;
+    return Math.round(Math.max(PANEL_MIN, Math.min(next, room - LIST_MIN)));
+  };
+  const save = (next: number) => {
+    setWidth(next);
+    localStorage.setItem(PANEL_WIDTH_KEY, String(next));
+  };
+  const onPointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (event.button !== 0) return;
+    event.preventDefault();
+    const handle = event.currentTarget;
+    const panel = handle.parentElement;
+    const startX = event.clientX;
+    const startWidth = panel?.getBoundingClientRect().width ?? width;
+    handle.setPointerCapture(event.pointerId);
+    const body = document.body.style;
+    const before = { cursor: body.cursor, userSelect: body.userSelect };
+    body.cursor = "col-resize";
+    body.userSelect = "none";
+    let latest = startWidth;
+    const move = (moved: PointerEvent) => {
+      latest = clamp(startWidth + (startX - moved.clientX), panel);
+      setWidth(latest);
+    };
+    const end = () => {
+      handle.removeEventListener("pointermove", move);
+      handle.removeEventListener("pointerup", end);
+      handle.removeEventListener("pointercancel", end);
+      body.cursor = before.cursor;
+      body.userSelect = before.userSelect;
+      save(latest);
+    };
+    handle.addEventListener("pointermove", move);
+    handle.addEventListener("pointerup", end);
+    handle.addEventListener("pointercancel", end);
+  };
+  const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
+    const step = event.shiftKey ? 64 : 16;
+    const delta = event.key === "ArrowLeft" ? step : event.key === "ArrowRight" ? -step : 0;
+    if (delta === 0) return;
+    event.preventDefault();
+    save(clamp(width + delta, event.currentTarget.parentElement));
+  };
+  const handle = (
+    <div
+      role="separator"
+      aria-orientation="vertical"
+      aria-label="Resize the panel"
+      aria-valuenow={width}
+      tabIndex={0}
+      title="Drag to resize. Double-click to reset."
+      data-testid="inbox-panel-resize"
+      className="group absolute inset-y-0 -left-1.5 z-10 hidden w-3 cursor-col-resize touch-none outline-none lg:block"
+      onPointerDown={onPointerDown}
+      onKeyDown={onKeyDown}
+      onDoubleClick={() => save(clamp(PANEL_DEFAULT, null))}
+    >
+      <div className="mx-auto h-full w-px bg-transparent transition-colors group-hover:bg-ring group-focus-visible:bg-ring group-active:bg-ring" />
+    </div>
+  );
+  return { width, handle };
+}
+
 function InboxPage() {
   const { rpc, state, error, run } = useFactory();
+  const panel = usePanelWidth();
   // Which entry is open is remembered for this page alone, so the panel is
   // as he left it when he comes back from a thread or another page.
   const [openId, setOpen] = useState<string | null>(() => (typeof localStorage === "undefined" ? null : localStorage.getItem(OPEN_KEY)));
@@ -1172,7 +1268,12 @@ function InboxPage() {
         </Page>
       </div>
       {open === null ? null : (
-        <aside className="flex h-full min-h-0 w-full flex-col border-l border-border bg-background lg:w-[34rem] lg:shrink-0" data-testid="inbox-panel">
+        <aside
+          className="relative flex h-full min-h-0 w-full flex-col border-l border-border bg-background lg:w-[var(--panel-width)] lg:shrink-0"
+          style={{ "--panel-width": `${panel.width}px` } as CSSProperties}
+          data-testid="inbox-panel"
+        >
+          {panel.handle}
           <div className="flex items-start gap-3 border-b border-border px-5 py-4">
             <div className="min-w-0 flex-1 space-y-1">
               <p className="flex flex-wrap items-center gap-x-2 text-xs text-muted-foreground">
@@ -1187,9 +1288,7 @@ function InboxPage() {
               ×
             </button>
           </div>
-          <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
-            <InboxCard key={open.id} entry={open} rpc={rpc} run={run} />
-          </div>
+          <InboxCard key={open.id} entry={open} rpc={rpc} run={run} />
         </aside>
       )}
     </div>
