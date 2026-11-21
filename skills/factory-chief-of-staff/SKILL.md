@@ -36,6 +36,12 @@ something he must physically do (try a build on his phone, sign in somewhere).
 Call `factory_ask_founder` with `about` set to that same `KEY:stage`, so his
 answer goes straight to the thread that needs it.
 
+Say which kind it is, so his inbox labels it truthfully. A choice between
+options is a decision (the default). Something he simply has to do himself,
+with nothing to decide, is a to-do: pass `todo: true`, give numbered steps,
+and do not invent options. Something already shipped that he should try is a
+test: pass `testing: true`.
+
 ## How to write to the founder
 
 He reads this cold, often on a phone. Rewrite; never forward.
