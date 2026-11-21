@@ -195,6 +195,11 @@ export default async function plugin(bb: BbPluginApi) {
     async environmentOf(threadId) {
       return (await bb.sdk.threads.get({ threadId })).environmentId;
     },
+    renameWorkspace(environmentId, name) {
+      void bb.sdk.environments
+        .update({ environmentId, name })
+        .catch((error: unknown) => bb.log.debug(`workspace rename skipped: ${messageOf(error)}`));
+    },
     unpin(threadId) {
       void bb.sdk.threads
         .unpin({ threadId })
@@ -392,6 +397,23 @@ export default async function plugin(bb: BbPluginApi) {
   });
 
   bb.agents.registerTool({
+    name: "factory_follow_up",
+    description:
+      "Issue owner only: continue a ticket that has shipped under a new ticket, in the same workspace. Use it when follow-up work has its own ticket. This thread stays the owner, the workspace takes the new ticket's name, the shipped ticket leaves the board, and a builder starts on your handoff. For more work under the same ticket, message its builder instead.",
+    presentation: { label: { pending: "Continuing under a new ticket", completed: "Continued under a new ticket" } },
+    parameters: z.object({
+      key: z.string().min(1).max(40).describe('The new ticket\'s key, such as "JUS-1020".'),
+      title: z.string().min(1).max(300),
+      handoff: z.string().min(1).max(8000).describe("What the builder must do, complete enough to build from: this is its plan."),
+    }),
+    execute: (input, { threadId }) =>
+      toolResult(async () => {
+        const item = await engine.followUp(threadId, input);
+        return `${item.key} has taken over this workspace and its builder has started. You are its issue owner.`;
+      }),
+  });
+
+  bb.agents.registerTool({
     name: "factory_message",
     description:
       'Send a message to another factory thread. `to` is a standing agent ("orchestrator"), a ticket key for its current stage ("JUS-12"), or "JUS-12:build" for one stage\'s thread.',
@@ -439,7 +461,7 @@ export default async function plugin(bb: BbPluginApi) {
       // Any stage thread may turn out to own its ticket; the engine refuses
       // the note from one that does not.
       return {
-        tools: ["factory_stage_done", "factory_ask_founder", "factory_ask_planner", "factory_message", "factory_ticket_note"],
+        tools: ["factory_stage_done", "factory_ask_founder", "factory_ask_planner", "factory_message", "factory_ticket_note", "factory_follow_up"],
         skills: ["factory", "factory-issue-owner"],
       };
     }

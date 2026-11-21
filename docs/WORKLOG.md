@@ -14,7 +14,7 @@ What was built, researched and learned, newest first. It replaces an issue track
 In rough order.
 
 1. **Founder picks models per role, starts the orchestrator, and runs one small Justus ticket by hand.** Then resume the three paused automations.
-3. **Feedback that triggers a check when it arrives.** bb's public address cannot be called by the cloud function (see `LEARNINGS.md`), so plan a poller in Justus: a script automation every few minutes that asks preview for untriaged feedback newer than its marker, stays silent when there is none, and otherwise runs `bb factory prompt watch "…"` with the row ids. The `/prompt` hook is there if a safe public route appears.
+3. **Feedback reaches Watch when it arrives (founder, 21 November: a trigger, not a cron; from Justus or Slack).** bb's public address cannot be called from outside (see `LEARNINGS.md`), so the trigger has to be a connection the Mac opens. Two candidates, awaiting his choice: a Slack app in Socket Mode held open by the plugin, which forwards new posts in chosen channels to a standing agent (covers feedback, error alerts and onboarding alerts, needs no Justus change, needs him to create the Slack app); or a Supabase Realtime subscription on `public.feedback` (feedback only, needs a Justus migration). The `/prompt` hook stays for local callers.
 4. **Revisit ticket approval around 30 November 2026.** The founder approves every new ticket for the first week or two; ask then whether the orchestrator may create them on its own.
 5. **Teach the Justus instructions about the factory.** `AGENTS.md` there says the founder launches reviews and ship; under the factory the factory does. Its `review-plan` skill already says the reviewer stays the ticket's planner; add that the founder's feedback comes to it too, and that small bugs ride with a planned ticket (the `SMALL_BUG` fast path and its resolver assume a branch per bug).
 6. **Builder and shipper as sub-agents of the issue owner**, possibly on other providers, if threads stop being the useful shape. Held by the founder.
@@ -26,6 +26,12 @@ In rough order.
 11. **Install bb's Conductor layout when it is released.**
 
 ## Log
+
+### 21 November 2026: follow-up tickets; Watch's history
+
+- **`factory_follow_up`:** an owner continues a shipped ticket under a new ticket in the same workspace. Prompted by JUS-998, whose owner started its own builder outside the board because the ticket was done.
+- **Watch had not lost history.** Its memory counted all 873 change-watch files; 687 are retired and 100 are being watched. The error-triage marker is new (16 November) and no run has recorded one, so "never run" described the marker, not the triage. Corrected the memory file.
+- **Checked:** 70 behaviour tests, 51 live checks.
 
 ### 20 November 2026 (eleventh session): issue owners, riding small bugs
 

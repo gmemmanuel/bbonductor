@@ -11,6 +11,12 @@ What Gideon has decided about the factory, newest first. Check here before re-op
 
 ---
 
+## 21 November 2026 (follow-up tickets, Watch)
+
+**Follow-up work on a shipped ticket continues in the same workspace under its new ticket.** The owner moves the workspace and its own thread to the new ticket; the shipped ticket leaves the board. No new workspace for a continuation. (Founder)
+
+**Feedback should reach Watch when it arrives, from Justus or Slack, not on a schedule.** How is open: see Next up. (Founder)
+
 ## 20 November 2026 (issue owners)
 
 **Each ticket has an issue owner, and the standing chief of staff is retired.** The thread that reviews a ticket's plan owns the ticket until it ships: it is the one thread the founder talks to about it, from the inbox or in the thread, and the only one that reaches his inbox for it. (Founder)

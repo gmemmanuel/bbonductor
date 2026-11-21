@@ -16,6 +16,7 @@ export const CLI_COMMANDS = [
   { name: "done", summary: "Report this thread's stage (same as factory_stage_done)", usage: "bb factory done --outcome complete|changes_requested|blocked --summary <text> [--founder-check <text>] [--rereview]" },
   { name: "ask", summary: "Ask the founder (same as factory_ask_founder)", usage: "bb factory ask <question…> [--context <text>] [--option <text>]… [--recommend <text>] [--todo|--testing] [--account <text>] [--step <text>]…" },
   { name: "ask-planner", summary: "Send something back to this ticket's issue owner (same as factory_ask_planner)", usage: "bb factory ask-planner <handoff…>" },
+  { name: "follow-up", summary: "Issue owner: continue a shipped ticket under a new one, in the same workspace (same as factory_follow_up)", usage: "bb factory follow-up <key> <title…> --handoff <text>" },
   { name: "note", summary: "Issue owner: replace the ticket note (same as factory_ticket_note)", usage: "bb factory note <text…>" },
   { name: "message", summary: "Message an agent or a ticket's thread", usage: "bb factory message <agent|KEY|KEY:stage> <text…>" },
   { name: "inbox", summary: "List open founder decisions", usage: "bb factory inbox [--json]" },
@@ -224,6 +225,13 @@ export async function runCli(
         if (rest.length === 0) break;
         const text = await engine.askPlanner(thread(), rest.join(" "));
         return ok({ message: text }, text);
+      }
+      case "follow-up": {
+        const [key, ...title] = rest;
+        const handoff = flag("handoff");
+        if (key === undefined || title.length === 0 || handoff === undefined) break;
+        const item = await engine.followUp(thread(), { key, title: title.join(" "), handoff });
+        return ok(item, `${item.key} has taken over the workspace and its builder has started.`);
       }
       case "note": {
         if (rest.length === 0) break;

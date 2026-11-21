@@ -31,6 +31,7 @@ function setup() {
   const retried: string[] = [];
   const archived: string[] = [];
   const updated: { threadId: string; model?: string; reasoningLevel?: string }[] = [];
+  const renamed: { environmentId: string; name: string }[] = [];
   let failSpawn = false;
   /** Who started each thread's latest turn. */
   const lastTurn = new Map<string, "user" | "agent">();
@@ -86,6 +87,12 @@ function setup() {
         },
         interactions: { list: async () => [] },
       },
+      environments: {
+        update: async (args: { environmentId: string; name: string }) => {
+          renamed.push(args);
+          return {};
+        },
+      },
       plugins: { callRpc: async () => ({ ok: true, channels: [] }) },
     } as never,
   });
@@ -122,6 +129,7 @@ function setup() {
     sent,
     retried,
     archived,
+    renamed,
     updated,
     rpc,
     state,
@@ -754,7 +762,7 @@ describe("standing agents and messaging", () => {
     expect(names(outsider?.tools)).toEqual([]);
 
     const worker = await configure({ binding: { kind: "stage", itemId: "itm_1", stage: "build" } });
-    expect(names(worker?.tools)).toEqual(["factory_stage_done", "factory_ask_founder", "factory_ask_planner", "factory_ticket_note", "factory_message"]);
+    expect(names(worker?.tools)).toEqual(["factory_stage_done", "factory_ask_founder", "factory_ask_planner", "factory_ticket_note", "factory_follow_up", "factory_message"]);
     expect(JSON.stringify(worker?.skills)).toContain("factory-issue-owner");
 
     const orchestrator = await configure({ binding: { kind: "agent", agentId: "orchestrator", projectId: PROJECT } });
@@ -864,6 +872,28 @@ describe("the founder tries a visible change before it ships", () => {
     await t.tool("factory_stage_done", "th_2", { outcome: "complete", summary: "Fixed the overlap.", founder_check: CHECK });
     // It comes back to him to try before it ships again.
     expect((await t.state()).inbox[0]).toMatchObject({ kind: "check", threadId: "th_1" });
+  });
+
+  it("lets the owner continue a shipped ticket under a new ticket, in the same workspace and the same owner thread", async () => {
+    const entry = await ownedToGate();
+    await t.rpc("approve", { entryId: entry.id });
+    expect(await t.tool("factory_follow_up", "th_1", { key: "JUS-20", title: "Round two", handoff: "Fix the overlap." })).toContain("has not shipped");
+    await t.tool("factory_stage_done", "th_4", { outcome: "complete", summary: "Merged." });
+    expect(await t.tool("factory_follow_up", "th_2", { key: "JUS-20", title: "Round two", handoff: "x" })).toContain("Only a ticket's issue owner");
+
+    const reply = await t.tool("factory_follow_up", "th_1", { key: "JUS-20", title: "Round two", handoff: "Fix the overlap with long names." });
+    expect(reply).toContain("JUS-20 has taken over this workspace");
+    // A builder starts on the handoff in the shipped ticket's workspace: no new worktree.
+    expect(t.spawned.at(-1)).toMatchObject({ id: "th_5", title: "JUS-20", environment: { type: "reuse", environmentId: "env_th_1" } });
+    expect(t.spawned.at(-1)!.prompt).toContain("Fix the overlap with long names.");
+    expect(t.renamed).toEqual([{ environmentId: "env_th_1", name: "JUS-20" }]);
+    // The shipped ticket leaves the board; nothing is done and in progress at once.
+    const board = (await t.state()).items.filter((item) => item.status !== "archived");
+    expect(board.map((item) => [item.key, item.status, item.pipeline])).toEqual([["JUS-20", "running", "reviewed"]]);
+    // The same thread owns the new ticket: the builder's questions come to it.
+    await t.tool("factory_ask_planner", "th_5", { question: "Which names?" });
+    expect(t.sent.at(-1)).toMatchObject({ threadId: "th_1", senderThreadId: "th_5" });
+    expect((await t.item("JUS-20")).status).toBe("with-owner");
   });
 
   it("sends his notes straight to the builder of a small bug running alone, which owns itself", async () => {

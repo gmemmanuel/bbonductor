@@ -350,8 +350,20 @@ async function main() {
     bb(["factory", "done", "--outcome", "complete", "--summary", "Merged."], as(ship));
     check("the ticket finishes after its last stage", ticket("LIVE-1").status === "done");
     check("a finished ticket's threads are left for the founder to archive", threads().some((t) => t.id === build));
-    for (const id of Object.values(ticket("LIVE-1").threads)) bb(["thread", "archive", id]);
-    const cleared = await until(() => (status().items.find((i) => i.key === "LIVE-1")?.status === "archived" ? true : null));
+
+    // --- follow-up work under a new ticket continues in the same workspace
+    bb(["factory", "follow-up", "LIVE-9", "Round two", "--handoff", "Rename it back."], as(owner.id));
+    const followUp = await until(() => ticket("LIVE-9")?.threads.build);
+    const followThread = await until(() => threads().find((t) => t.id === followUp && t.environmentId));
+    check("a follow-up ticket takes over the shipped ticket's workspace", followThread?.environmentId === buildThread?.environmentId && ticket("LIVE-1").status === "archived");
+    const workspaces = () => JSON.parse(bb(["environment", "list", "--json"]));
+    const renamed = await until(() => (workspaces().find((e) => e.id === buildThread?.environmentId)?.name === "LIVE-9" ? true : null), 8_000);
+    check("the workspace takes the new ticket's name", renamed === true, JSON.stringify(workspaces().map((e) => [e.id, e.name])) + ` want ${buildThread?.environmentId}`);
+    bb(["factory", "cancel", "LIVE-9", "--project", project]);
+    // LIVE-2 was held up behind it only for the length of this check.
+    bb(["factory", "done", "--outcome", "complete", "--summary", "Built."], as(ticket("LIVE-3").threads.fix));
+    for (const id of Object.values(ticket("LIVE-3").threads)) bb(["thread", "archive", id]);
+    const cleared = await until(() => (status().items.find((i) => i.key === "LIVE-3")?.status === "archived" ? true : null));
     check("archiving its workspace clears a finished ticket from the board", cleared === true);
     const next = await until(() => (ticket("LIVE-2").status !== "queued" ? true : null));
     check("the next ticket in the lane starts", next === true);
