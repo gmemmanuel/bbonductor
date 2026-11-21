@@ -101,6 +101,31 @@ export interface FounderCheckInput {
   steps: string[];
 }
 
+/**
+ * What an ask looks like in the inbox, by kind. Only a decision carries
+ * options and a recommendation: something he simply has to do, or try, is
+ * steps and an account, and must not be dressed up as a choice.
+ */
+function askShape(input: AskInput): Pick<InboxEntry, "kind" | "context" | "options" | "recommendation"> {
+  const kind = input.kind ?? "decision";
+  if (kind === "decision") {
+    return {
+      kind: "question",
+      context: input.context ?? "",
+      options: input.options ?? [],
+      recommendation: input.recommendation ?? "",
+    };
+  }
+  const context = [
+    (input.context ?? "").trim(),
+    input.account ? `Test account: ${input.account.trim()}` : "",
+    (input.steps ?? []).length > 0 ? `**Steps**\n${input.steps!.map((step) => `- ${step.trim()}`).join("\n")}` : "",
+  ]
+    .filter((part) => part !== "")
+    .join("\n\n");
+  return { kind, context, options: [], recommendation: "" };
+}
+
 /** The one shape every "try before it ships" message takes. */
 export function renderFounderCheck(check: FounderCheckInput): string {
   return [
@@ -118,10 +143,12 @@ export interface AskInput {
   context?: string;
   options?: string[];
   recommendation?: string;
-  /** Not a decision: something already shipped that the founder should try. */
-  testing?: boolean;
-  /** Not a decision: something only the founder can physically do. */
-  todo?: boolean;
+  /** decision: he chooses between outcomes. todo: he does something. test: he tries shipped work. */
+  kind?: "decision" | "todo" | "test";
+  /** For todo and test: the test account and password, if he needs one. */
+  account?: string;
+  /** For todo and test: what to do, one action per step. */
+  steps?: string[];
   /** Chief of staff only: the thread this is about, as "KEY" or "KEY:stage". */
   about?: string;
 }
@@ -668,12 +695,9 @@ export class FactoryEngine {
           const entry = this.openEntry({
             item: about.item,
             threadId: target.threadId,
-            kind: input.testing === true ? "test" : input.todo === true ? "todo" : "question",
+            ...askShape(input),
             from: `${config.stages[about.stageId]?.label ?? about.stageId} · ${about.item.key}`,
             question: input.question,
-            context: input.context ?? "",
-            options: input.options ?? [],
-            recommendation: input.recommendation ?? "",
           });
           this.effects.changed();
           return entry;
@@ -711,12 +735,9 @@ export class FactoryEngine {
         item,
         threadId,
         projectId: binding.projectId,
-        kind: input.testing === true ? "test" : input.todo === true ? "todo" : "question",
+        ...askShape(input),
         from,
         question: input.question,
-        context: input.context ?? "",
-        options: input.options ?? [],
-        recommendation: input.recommendation ?? "",
       });
       this.effects.changed();
       return entry;

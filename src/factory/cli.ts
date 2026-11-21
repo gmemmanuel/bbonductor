@@ -14,7 +14,7 @@ export const CLI_COMMANDS = [
   { name: "advance", summary: "Send a ticket on to its next stage", usage: "bb factory advance <key> [--summary <text>]" },
   { name: "cancel", summary: "Take a ticket out of the factory", usage: "bb factory cancel <key>" },
   { name: "done", summary: "Report this thread's stage (same as factory_stage_done)", usage: "bb factory done --outcome complete|changes_requested|blocked --summary <text> [--founder-check <text>] [--rereview]" },
-  { name: "ask", summary: "Ask the founder (same as factory_ask_founder)", usage: "bb factory ask <question…> [--context <text>] [--option <text>]… [--recommend <text>] [--about KEY:stage]" },
+  { name: "ask", summary: "Ask the founder (same as factory_ask_founder)", usage: "bb factory ask <question…> [--context <text>] [--option <text>]… [--recommend <text>] [--todo|--testing] [--account <text>] [--step <text>]… [--about KEY:stage]" },
   { name: "ask-planner", summary: "Send something back to this ticket's planner (same as factory_ask_planner)", usage: "bb factory ask-planner <handoff…>" },
   { name: "message", summary: "Message an agent or a ticket's thread", usage: "bb factory message <agent|KEY|KEY:stage> <text…>" },
   { name: "inbox", summary: "List open founder decisions", usage: "bb factory inbox [--json]" },
@@ -213,8 +213,9 @@ export async function runCli(
           options: flags.get("option") ?? [],
           recommendation: flag("recommend"),
           about: flag("about"),
-          testing: flags.has("testing"),
-          todo: flags.has("todo"),
+          kind: flags.has("todo") ? "todo" : flags.has("testing") ? "test" : "decision",
+          account: flag("account"),
+          steps: flags.get("step"),
         });
         return ok(entry, entry.id === "" ? "Sent to the chief of staff. The reply will arrive in this thread. End your turn." : "Asked. The answer will arrive in the thread it concerns. End your turn.");
       }

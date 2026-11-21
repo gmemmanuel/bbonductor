@@ -58,6 +58,8 @@ Non-obvious decisions and process knowledge for agents working on the Factory pl
 
 - **Codex silently truncates project instructions at 32 KB.** Justus's `AGENTS.md` is about 54 KB, so every Codex builder and shipper read only the first 60%: everything from "Canonical Planning Vault" on (review lanes, working rules, verification, chat safety) was missing. Codex prints one line about it per turn. Raised `project_doc_max_bytes` to 131072 in `~/.codex/config.toml` (backup in `~/.bb-backups/`). Claude Code has no such cap. Check instruction size against each provider's limit when adding a provider.
 
+- **An optional flag does not stop an agent mislabelling.** With `todo` available as an optional boolean, the chief of staff still filed "record your phone" as a decision, with "Done" and "Not now" as its options. `kind` is now a required field, and the engine drops options and recommendation from anything that is not a decision. It had also merged the ticket title into the question because its charter said to start with it; the page now shows the title on its own line and the charter says not to repeat it.
+
 ## Testing
 
 - **The fake plugin host proves the rules; only real bb proves the wiring.** Run both. The live check starts bb with its own data folder and ports, so it never touches `~/.bb`.

@@ -11,6 +11,11 @@ What Gideon has decided about the factory, newest first. Check here before re-op
 
 ---
 
+## 20 November 2026 (clearer asks)
+
+**An inbox entry shows the ticket title on its own line, then the ask.** A to-do or a test never shows options. No branch names or history of earlier requests in what he reads. (Founder)
+"Very busy. Ticket title and the topic of the inbox message are hard to distinguish, a bunch of branch info I don't need, and it's framed as a decision when it's obviously just a test on your phone to do."
+
 ## 20 November 2026 (deployer)
 
 **A standing Deployer runs deployments when the founder asks.** (Founder)

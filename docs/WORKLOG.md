@@ -25,6 +25,13 @@ In rough order.
 
 ## Log
 
+### 20 November 2026 (eighth session): clearer founder asks
+
+- **An inbox entry now shows the ticket title on its own line, then the ask in larger type.** `factory_ask_founder` takes a required `kind` (decision, todo, test) plus `account` and `steps`; the engine drops options and recommendation from anything that is not a decision. Question and context limits are shorter. Chief of staff and deployer charters updated.
+- Prompted by a "record your phone" request filed as a decision with "Done" and "Not now" as options, the ticket title merged into the question, and branch history in the context.
+- The Mac's disk filled mid-session (120 MB free); cleared this session's scratch folders in `/tmp` and the live check's leftovers.
+- **Checked:** 57 behaviour tests, 29 live checks. **Not checked:** the new card in a real browser, and a real chief of staff filing under the new shape.
+
 ### 20 November 2026 (seventh session): labels, deployer, Codex instruction limit
 
 - Inbox kinds `test` (Try on main) and `todo` (To do); `bb factory retag`. Standing Deployer. The agents' workspace is named "Agents".

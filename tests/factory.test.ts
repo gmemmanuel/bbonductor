@@ -366,7 +366,7 @@ describe("builder and plan reviewer go back and forth without the founder", () =
 describe("founder inbox", () => {
   it("sends a stage's founder question to the chief of staff first, who can settle it without the founder", async () => {
     await t.enqueue("JUS-1", "Coach", "reviewed");
-    const reply = await t.tool("factory_ask_founder", "th_1", {
+    const reply = await t.tool("factory_ask_founder", "th_1", { kind: "decision",
       question: "May I raise the QA call budget from 10 to 20?",
       context: "The replay needs 20 calls.",
     });
@@ -392,8 +392,8 @@ describe("founder inbox", () => {
 
   it("lets the chief of staff put one clear question to the founder, whose answer goes to the ticket's thread", async () => {
     await t.enqueue("JUS-1", "Coach", "reviewed");
-    await t.tool("factory_ask_founder", "th_1", { question: "Rest day or missed?", context: "long agent text" });
-    await t.tool("factory_ask_founder", "th_2", {
+    await t.tool("factory_ask_founder", "th_1", { kind: "decision", question: "Rest day or missed?", context: "long agent text" });
+    await t.tool("factory_ask_founder", "th_2", { kind: "decision",
       about: "JUS-1:build",
       question: "Should a skipped run count as a rest day?",
       context: "Du skipped Tuesday; today Coach counts it as rest.",
@@ -426,26 +426,31 @@ describe("founder inbox", () => {
     const arrivals = () => t.harness.inspection.realtimeSignals.filter((signal) => signal.channel === "factory-inbox-arrived").length;
     const planner = await t.rpc<{ threadId: string }>("startAgent", { projectId: PROJECT, agentId: "orchestrator" });
     expect(arrivals()).toBe(0);
-    await t.tool("factory_ask_founder", planner.threadId, { question: "Create a ticket?" });
+    await t.tool("factory_ask_founder", planner.threadId, { kind: "decision", question: "Create a ticket?" });
     expect(arrivals()).toBe(1);
   });
 
   it("files a request to try something already shipped as a test, not a decision", async () => {
     await t.enqueue("JUS-1", "Coach", "small-bug");
     await t.tool("factory_stage_done", "th_1", { outcome: "complete", summary: "Fixed and merged." });
-    await t.tool("factory_ask_founder", "th_1", { question: "Try the skip button (already on main)", context: "**Steps to test**", testing: true });
+    await t.tool("factory_ask_founder", "th_1", { kind: "test", question: "Try the skip button", context: "Skip now works for upcoming sessions.", account: "demo@example.com / pw", steps: ["Open Park Loop.", "Tap Skip."], options: ["ignored"] });
     const entry = (await t.state()).inbox[0]!;
     expect(entry).toMatchObject({ kind: "test", threadId: "th_1" });
+    // A test carries an account and steps, never options.
+    expect(entry.context).toBe("Skip now works for upcoming sessions.\n\nTest account: demo@example.com / pw\n\n**Steps**\n- Open Park Loop.\n- Tap Skip.");
+    expect(entry.options).toEqual([]);
     // His notes still go to the thread that built it.
     await t.rpc("answer", { entryId: entry.id, answer: "Undo is missing." });
     expect(t.sent.at(-1)).toMatchObject({ threadId: "th_1" });
 
     // Something he simply has to do is a to-do, including when the chief of staff files it.
-    await t.tool("factory_ask_founder", "th_1", { question: "Record the menu transition on your phone", todo: true });
+    await t.tool("factory_ask_founder", "th_1", { kind: "todo", question: "Record the menu transition on your phone", steps: ["Open the menu."], options: ["Done", "Not now"], recommendation: "Do it." });
     expect((await t.state()).inbox.map((item) => item.kind)).toContain("todo");
+    // "Do it" and "not now" are not options: a to-do never shows a choice.
+    expect((await t.state()).inbox.find((item) => item.kind === "todo")).toMatchObject({ options: [], recommendation: "" });
 
     // An entry filed under the wrong kind can be corrected.
-    await t.tool("factory_ask_founder", "th_1", { question: "Try it again" });
+    await t.tool("factory_ask_founder", "th_1", { kind: "decision", question: "Try it again" });
     const find = async () => (await t.state()).inbox.find((item) => item.question === "Try it again")!;
     expect((await find()).kind).toBe("question");
     await t.harness.behavior.runCli(["retag", (await find()).id, "test"], { projectId: PROJECT });
@@ -454,7 +459,7 @@ describe("founder inbox", () => {
 
   it("lets a standing agent ask the founder directly", async () => {
     const planner = await t.rpc<{ threadId: string }>("startAgent", { projectId: PROJECT, agentId: "orchestrator" });
-    await t.tool("factory_ask_founder", planner.threadId, { question: "Create a ticket for the new error class?" });
+    await t.tool("factory_ask_founder", planner.threadId, { kind: "decision", question: "Create a ticket for the new error class?" });
     expect((await t.state()).inbox[0]).toMatchObject({ kind: "question", from: "Planner / strategist" });
   });
 
@@ -497,7 +502,7 @@ describe("founder inbox", () => {
     await t.emit("thread.idle", "th_1", { lastAssistantText: "Hm." });
     expect((await t.item("JUS-1")).status).toBe("stalled");
 
-    await t.tool("factory_ask_founder", "th_1", { question: "Which unit?" });
+    await t.tool("factory_ask_founder", "th_1", { kind: "decision", question: "Which unit?" });
     expect((await t.state()).inbox).toEqual([]);
     expect((await t.item("JUS-1")).status).toBe("triage");
   });

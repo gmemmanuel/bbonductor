@@ -339,12 +339,15 @@ export default async function plugin(bb: BbPluginApi) {
       "Put a decision in the founder's inbox. Use only for choices the founder must make: product behavior, scope, or a contradiction with a recorded decision. Then end your turn; the answer arrives in this thread.",
     presentation: { label: { pending: "Asking the founder", completed: "Asked the founder" } },
     parameters: z.object({
-      question: z.string().min(1).max(600).describe("One question, answerable without opening anything else."),
-      context: z.string().max(4000).optional().describe("The situation: who is affected, where, and what happens today."),
-      options: z.array(z.string().max(600)).max(4).optional().describe("Each option and what the user would see."),
-      recommendation: z.string().max(1000).optional().describe("Which option you recommend and why."),
-      testing: z.boolean().optional().describe("Set true when this is not a decision but something already shipped that the founder should try."),
-      todo: z.boolean().optional().describe("Set true when there is nothing to decide and the founder simply has to do something himself (record a video, sign in somewhere, install a build)."),
+      question: z.string().min(1).max(200).describe("The ask itself in one short sentence. Do not repeat the ticket number or title: the inbox shows them above it."),
+      context: z.string().max(1200).optional().describe("Two to four plain sentences: what a user sees today and what is at stake. No branch names, commit ids, run ids, or history of earlier requests."),
+      options: z.array(z.string().max(600)).max(4).optional().describe("decision only: each option and what the user would see."),
+      recommendation: z.string().max(1000).optional().describe("decision only: which option you recommend and why."),
+      kind: z
+        .enum(["decision", "todo", "test"])
+        .describe("decision: he must choose between outcomes that differ for a user. todo: there is nothing to choose, he has to do something himself (record his phone, install a build, sign in). test: try something that has already shipped. If you cannot name two outcomes he would be choosing between, it is not a decision."),
+      account: z.string().max(200).optional().describe("todo and test only: the test account and password, such as 'demo@example.com / hunter2'."),
+      steps: z.array(z.string().min(1).max(300)).max(12).optional().describe("todo and test only: what to do, one action per step, and what he should see."),
       about: z.string().max(80).optional().describe('Chief of staff only: the ticket thread this is about, such as "JUS-12:build". The founder\'s answer goes to that thread.'),
     }),
     execute: (input, { threadId }) =>
