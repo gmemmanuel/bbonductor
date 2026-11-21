@@ -11,6 +11,14 @@ What Gideon has decided about the factory, newest first. Check here before re-op
 
 ---
 
+## 20 November 2026 (inbox reply box)
+
+**The inbox reply box behaves like a real composer.** It grows as he types, takes pictures, videos and other files, keeps an unsent draft when he leaves the page, and moves that draft into the thread's composer when he presses Open thread. (Founder: "Four big problems")
+
+**What he was asked shows inside the thread it is about**, above that thread's composer, even when the chief of staff wrote it. (Founder)
+
+**The whole ask travels with his answer** into the thread, not only its first line. No message is sent to the thread when the ask is filed: that would start an agent turn and spend quota for a note. (Agent)
+
 ## 20 November 2026 (run from the inbox)
 
 **A to-do, a test or a "try before it ships" entry has a Run button that starts the project's Run command in that ticket's workspace.** It becomes Stop while that workspace is running. (Founder)

@@ -121,6 +121,17 @@ export const INBOX_KINDS = [
 ] as const;
 export type InboxKind = (typeof INBOX_KINDS)[number];
 
+/** A file the founder attached to an answer, as bb's upload returned it. */
+export const attachmentSchema = z.object({
+  type: z.enum(["localFile", "localImage"]),
+  path: z.string().min(1),
+  name: z.string().min(1),
+  mimeType: z.string().optional(),
+  sizeBytes: z.number().optional(),
+  sourceProjectId: z.string().optional(),
+});
+export type Attachment = z.infer<typeof attachmentSchema>;
+
 export const inboxSchema = z.object({
   id: z.string(),
   projectId: z.string(),
