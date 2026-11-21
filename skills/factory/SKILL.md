@@ -20,8 +20,8 @@ Do that work to the project's own standard. Then report exactly once:
 |---|---|
 | The stage is completely finished | `factory_stage_done` with `outcome: "complete"` |
 | You are a reviewer and the author must change something you cannot land yourself | `factory_stage_done` with `outcome: "changes_requested"` |
-| You think the founder must decide | `factory_ask_founder`, then end your turn. It goes to the chief of staff first, who may answer it |
-| Something must go back to the planner | `factory_ask_planner`, then end your turn |
+| You think the founder must decide | `factory_ask_founder`, then end your turn. It goes to the ticket's issue owner first, who may answer it |
+| Something must go back to the planner (the ticket's issue owner) | `factory_ask_planner`, then end your turn |
 | You cannot proceed for another reason | `factory_stage_done` with `outcome: "blocked"` |
 
 Rules:
@@ -35,25 +35,29 @@ Rules:
   in this thread. Address them and call `factory_stage_done` again. Pass
   `rereview: true` only when your fixes raise a new product or scope decision;
   one review pass is the design.
-- **The planner of a ticket is the agent that reviewed its plan.** When your
-  project's process says a question, a blocker or a contract problem goes back
-  to the planner, call `factory_ask_planner` with the full handoff. It reaches
-  that agent's thread, its answer arrives here, and the two of you go back and
-  forth as often as needed. If you are the plan reviewer and a builder asks,
-  decide, update the plan if it changes, and reply with `factory_message` to
-  `KEY:stage`. The founder never carries these, so never put one in his inbox
-  or report it as blocked.
+- **Every ticket has an issue owner: the agent that reviewed its plan.** It
+  is the "planner" your project's process refers to. When a question, a
+  blocker or a contract problem goes back to the planner, call
+  `factory_ask_planner` with the full handoff. It reaches the owner's thread,
+  its answer arrives here, and the two of you go back and forth as often as
+  needed. If you are the issue owner, the `factory-issue-owner` skill is your
+  charter.
 - **Anything a user will see is tried by the founder before it ships.** If
   your ticket changes a screen, copy, or behavior a user notices, pass
   `founder_check` with `factory_stage_done`. Write it for him: exactly what
   changed, screen by screen; the branch; how to run it; a dev account that
   shows the change, either one that exists or one you seeded for this, with
   how to sign in; and numbered steps saying what he should see at each. Ship
-  starts only after he approves. If he sends notes, they come to the builder.
-- **The chief of staff stands between you and the founder.** A blocked report
+  starts only after he approves. If he sends notes, they go to the issue
+  owner, who sends the builder what to change.
+- **The issue owner stands between you and the founder.** A blocked report
   or a founder question reaches it first. It may answer you itself (budgets,
-  technical choices, anything the project's rules settle) or take it to the
-  founder in plain words. Either way the reply arrives in this thread.
+  technical choices, anything the plan or the project's rules settle) or take
+  it to the founder in plain words. Either way the reply arrives in this
+  thread.
+- **Small bugs may ride with your ticket.** Your first message lists them.
+  Fix each in the same workspace and branch, as its own commit; review and
+  ship them with the ticket. They get no plan, branch or CI run of their own.
 - **Ask the founder only for founder decisions:** product behavior, scope,
   approval of a mockup, or a contradiction with a recorded decision. Give the situation, the options
   with what the user would see in each, and your recommendation. Decide

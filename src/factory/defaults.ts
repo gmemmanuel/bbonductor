@@ -16,18 +16,8 @@ export const DEFAULT_CONFIG: Config = {
       fallbackModel: "",
       fallbackReasoningLevel: "",
     },
-    "chief-of-staff": {
-      label: "Chief of staff",
-      providerId: "",
-      model: "",
-      reasoningLevel: "",
-      permissionMode: "",
-      fallbackProviderId: "",
-      fallbackModel: "",
-      fallbackReasoningLevel: "",
-    },
     "plan-review": {
-      label: "Plan reviewer",
+      label: "Issue owner",
       providerId: "",
       model: "",
       reasoningLevel: "",
@@ -122,6 +112,7 @@ export const DEFAULT_CONFIG: Config = {
       label: "Plan",
       role: "orchestrator",
       review: false,
+      owner: false,
       founderGate: false,
       tierRoles: {},
       prompt:
@@ -131,6 +122,7 @@ export const DEFAULT_CONFIG: Config = {
       label: "Plan review",
       role: "plan-review",
       review: true,
+      owner: true,
       founderGate: false,
       tierRoles: {},
       prompt:
@@ -140,6 +132,7 @@ export const DEFAULT_CONFIG: Config = {
       label: "Execution",
       role: "build",
       review: false,
+      owner: false,
       founderGate: false,
       tierRoles: { "2": "build-tier-2", "3": "build-tier-3" },
       prompt:
@@ -149,6 +142,7 @@ export const DEFAULT_CONFIG: Config = {
       label: "Code review",
       role: "code-review",
       review: true,
+      owner: false,
       founderGate: false,
       tierRoles: {},
       prompt:
@@ -158,6 +152,7 @@ export const DEFAULT_CONFIG: Config = {
       label: "Ship",
       role: "ship",
       review: false,
+      owner: false,
       founderGate: true,
       tierRoles: {},
       prompt:
@@ -167,6 +162,8 @@ export const DEFAULT_CONFIG: Config = {
       label: "Fix",
       role: "build",
       review: false,
+      // A small bug with no planned ticket to ride with: its builder owns it.
+      owner: true,
       founderGate: false,
       tierRoles: {},
       prompt:
@@ -187,12 +184,6 @@ export const DEFAULT_CONFIG: Config = {
       role: "orchestrator",
       skill: "factory-orchestrator",
       memoryPath: "docs/agents/orchestrator/MEMORY.md",
-    },
-    "chief-of-staff": {
-      label: "Chief of staff",
-      role: "chief-of-staff",
-      skill: "factory-chief-of-staff",
-      memoryPath: "docs/agents/chief-of-staff/MEMORY.md",
     },
     deploy: {
       label: "Deployer",

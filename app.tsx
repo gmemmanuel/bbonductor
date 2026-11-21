@@ -312,8 +312,7 @@ interface Catalog {
 
 /**
  * What the founder was asked, shown above the composer of the thread it is
- * about. The chief of staff writes most asks from its own thread, so without
- * this the thread he opens to answer in would not show the question.
+ * about, so the thread he opens to answer in shows the question.
  */
 function InboxBanner() {
   const composer = useComposer();
@@ -600,6 +599,7 @@ const STATUS_STYLE: Record<Item["status"], string> = {
   queued: "text-muted-foreground",
   running: "text-foreground",
   "needs-founder": "text-destructive",
+  "with-owner": "text-foreground",
   "with-planner": "text-foreground",
   triage: "text-foreground",
   returned: "text-foreground",
@@ -613,8 +613,9 @@ const STATUS_LABEL: Record<Item["status"], string> = {
   queued: "Queued",
   running: "Running",
   "needs-founder": "Waiting for you",
-  "with-planner": "With plan reviewer",
-  triage: "With chief of staff",
+  "with-owner": "With issue owner",
+  "with-planner": "With issue owner",
+  triage: "With issue owner",
   returned: "Returned to planner",
   stalled: "Stalled",
   failed: "Failed",
@@ -635,10 +636,11 @@ function Ticket({ item, config, rpc, run, canMoveUp = false, canMoveDown = false
   const shown = item.status === "done" ? "Merged" : forFounder && item.founderCheck !== null && !item.founderCheck.approved ? "Founder testing" : stageLabel;
   const note =
     item.status === "running" || waiting || item.status === "done" || forFounder ? "" : STATUS_LABEL[item.status];
-  // The thread doing the work now, the planner it is waiting on, or for a
-  // finished ticket the last thread that worked on it.
+  // The founder talks to a ticket through its issue owner, so that is the
+  // thread a ticket opens. Before it has one: the thread working on it now.
   const threadId =
-    item.consult?.threadId ??
+    item.ownerThreadId ??
+    stages.filter((id) => config.stages[id]?.owner === true).map((id) => item.threads[id]).find((id) => id !== undefined) ??
     (stageId === undefined ? undefined : item.threads[stageId]) ??
     stages.map((id) => item.threads[id]).filter((id) => id !== undefined).at(-1);
   return (
@@ -687,6 +689,15 @@ function Ticket({ item, config, rpc, run, canMoveUp = false, canMoveDown = false
         )}
       </div>
       <p className="text-muted-foreground">{item.title}</p>
+      {item.riders.length === 0 ? null : (
+        <ul className="space-y-0.5 text-xs text-muted-foreground" data-testid="riders">
+          {item.riders.map((rider) => (
+            <li key={rider.key}>
+              + <span className="font-mono">{rider.key}</span> {rider.title}
+            </li>
+          ))}
+        </ul>
+      )}
       {waiting ? (
         canMoveUp || canMoveDown ? (
           <div className="flex items-center justify-end gap-0.5">

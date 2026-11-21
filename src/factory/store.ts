@@ -246,42 +246,24 @@ export class FactoryStore {
  */
 function withNewDefaults(saved: Config): Config {
   let config = saved;
-  // The chief of staff, and the planner's new name.
-  if (config.agents["chief-of-staff"] === undefined && config.roles["chief-of-staff"] === undefined) {
-    const planner = config.roles.orchestrator;
-    const agent = config.agents.orchestrator;
+  // The issue owner replaced the chief of staff on 20 November: the thread
+  // that reviews a ticket's plan now fields everything about that ticket.
+  if (!Object.values(config.stages).some((stage) => stage.owner)) {
+    const { "chief-of-staff": _agent, ...agents } = config.agents;
+    const chiefInUse = Object.values(config.stages).some((stage) => stage.role === "chief-of-staff" || Object.values(stage.tierRoles).includes("chief-of-staff"));
+    const { "chief-of-staff": chiefRole, ...otherRoles } = config.roles;
+    const roles = chiefInUse && chiefRole !== undefined ? config.roles : otherRoles;
+    const reviewer = roles["plan-review"];
     config = {
       ...config,
-      roles: {
-        ...config.roles,
-        ...(planner !== undefined && planner.label === "Orchestrator / planner"
-          ? { orchestrator: { ...planner, label: "Planner / strategist" } }
-          : {}),
-        "chief-of-staff": structuredClone(DEFAULT_CONFIG.roles["chief-of-staff"]!),
-      },
-      agents: {
-        ...config.agents,
-        ...(agent !== undefined && agent.label === "Orchestrator"
-          ? { orchestrator: { ...agent, label: "Planner / strategist" } }
-          : {}),
-        "chief-of-staff": {
-          ...structuredClone(DEFAULT_CONFIG.agents["chief-of-staff"]!),
-          // Keep its memory beside the other agents' wherever the founder put them.
-          memoryPath:
-            agent === undefined
-              ? DEFAULT_CONFIG.agents["chief-of-staff"]!.memoryPath
-              : agent.memoryPath.replace(/[^/]*$/u, "Chief of staff memory.md"),
-        },
-      },
-      stages: {
-        ...config.stages,
-        ...(config.stages.ship !== undefined ? { ship: { ...config.stages.ship, founderGate: true } } : {}),
-      },
+      agents,
+      roles: reviewer !== undefined && reviewer.label === "Plan reviewer" ? { ...roles, "plan-review": { ...reviewer, label: "Issue owner" } } : roles,
+      stages: Object.fromEntries(Object.entries(config.stages).map(([id, stage]) => [id, id === "plan-review" || id === "fix" ? { ...stage, owner: true } : stage])),
     };
   }
   // The deployer, added 20 November.
   if (config.agents.deploy === undefined && config.roles.deploy === undefined) {
-    const sibling = config.agents["chief-of-staff"] ?? config.agents.orchestrator;
+    const sibling = config.agents.orchestrator;
     config = {
       ...config,
       roles: { ...config.roles, deploy: structuredClone(DEFAULT_CONFIG.roles.deploy!) },

@@ -30,6 +30,12 @@ export const stageSchema = z.object({
   /** A review stage sends requested changes back to the stage before it. */
   review: z.boolean().default(false),
   /**
+   * The thread that runs this stage owns the ticket from then on: it is the
+   * only thread that may put the ticket in front of the founder, and every
+   * other stage brings its questions to it.
+   */
+  owner: z.boolean().default(false),
+  /**
    * Roles for tickets whose plan declares an implementer tier, keyed "1".."3".
    * A ticket with no tier, or a tier not listed, uses `role`.
    */
@@ -63,6 +69,8 @@ export const ITEM_STATUSES = [
   "queued",
   "running",
   "needs-founder",
+  "with-owner",
+  // Saved by earlier versions; both mean what "with-owner" means now.
   "with-planner",
   "triage",
   "returned",
@@ -99,8 +107,18 @@ export const itemSchema = z.object({
   parked: z.boolean().default(false),
   /** What the founder must try before this ships, and whether he approved it. */
   founderCheck: z.object({ text: z.string(), approved: z.boolean() }).nullable().default(null),
-  /** The planner thread a stage is waiting on, and whether it was reminded. */
-  consult: z.object({ threadId: z.string(), nudged: z.boolean() }).nullable().default(null),
+  /**
+   * The issue owner's thread, when the ticket is waiting on it, and whether it
+   * was reminded. `check` marks the founder's notes on a held check: the owner
+   * decides what happens to them.
+   */
+  consult: z.object({ threadId: z.string(), nudged: z.boolean(), check: z.boolean().default(false) }).nullable().default(null),
+  /** An owner started outside the pipeline, for a ticket whose plan was reviewed elsewhere. */
+  ownerThreadId: z.string().nullable().default(null),
+  /** What the owner must not forget. It is sent back with everything the factory hands it. */
+  ownerNote: z.string().default(""),
+  /** Small bugs built, reviewed and shipped with this ticket, in its workspace. */
+  riders: z.array(z.object({ key: z.string(), title: z.string(), brief: z.string() })).default([]),
   /** Thread that queued this ticket; review findings with no author stage go here. */
   originThreadId: z.string().nullable(),
   nudged: z.boolean(),
@@ -164,6 +182,7 @@ export type AgentState = z.infer<typeof agentStateSchema>;
 /** What a thread is to the factory, kept in its plugin metadata. */
 export type ThreadBinding =
   | { kind: "stage"; itemId: string; stage: string }
+  | { kind: "owner"; itemId: string }
   | { kind: "agent"; agentId: string; projectId: string };
 
 export function fillTemplate(
@@ -176,3 +195,9 @@ export function fillTemplate(
       : match,
   );
 }
+
+/** The pipeline for a fix too small to plan. It rides with a planned ticket when one is coming up. */
+export const SMALL_BUG_PIPELINE = "small-bug";
+
+/** Waiting on the ticket's issue owner, under this name or an earlier one. */
+export const WITH_OWNER: ReadonlySet<ItemStatus> = new Set(["with-owner", "with-planner", "triage"]);

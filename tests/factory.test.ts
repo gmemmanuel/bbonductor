@@ -32,9 +32,11 @@ function setup() {
   const archived: string[] = [];
   const updated: { threadId: string; model?: string; reasoningLevel?: string }[] = [];
   let failSpawn = false;
+  /** Who started each thread's latest turn. */
+  const lastTurn = new Map<string, "user" | "agent">();
   const host = createFakePluginHost({
     pluginId: "bbonductor",
-    agentSkillIds: ["factory", "factory-orchestrator", "factory-chief-of-staff", "factory-deploy", "factory-harness-improver", "factory-watch"],
+    agentSkillIds: ["factory", "factory-orchestrator", "factory-issue-owner", "factory-deploy", "factory-harness-improver", "factory-watch"],
     sdk: {
       projects: { list: async () => [{ id: PROJECT, name: "Justus" }] },
       system: { config: async () => ({ primaryHostId: "host_local" }) },
@@ -60,7 +62,12 @@ function setup() {
               thread.environment.type === "reuse" ? thread.environment.environmentId! : `env_${thread.id}`,
           });
         },
+        events: {
+          list: async (args: { threadId: string }) =>
+            lastTurn.has(args.threadId) ? [{ type: "client/turn/requested", createdAt: Date.now(), data: { initiator: lastTurn.get(args.threadId), senderThreadId: null } }] : [],
+        },
         send: async (args: { threadId: string; input: { text: string }[]; senderThreadId?: string }) => {
+          lastTurn.set(args.threadId, "agent");
           sent.push({ threadId: args.threadId, text: args.input[0]!.text, senderThreadId: args.senderThreadId, ...(args.input.length > 1 ? { attachments: args.input.slice(1) } : {}) });
           return { ok: true, delivery: "sent" };
         },
@@ -91,6 +98,17 @@ function setup() {
     const result = await harness.behavior.callAgentTool(name, input, { threadId, projectId: PROJECT });
     return typeof result === "string" ? result : JSON.stringify(result);
   };
+  /**
+   * The founder typing in a thread himself, as bb reports it: a turn he
+   * started shows in the thread's log; a message that queued behind a running
+   * turn raises an event when it is dispatched.
+   */
+  const founderTypes = (threadId: string, queued = false) => {
+    if (!queued) lastTurn.set(threadId, "user");
+    return harness.behavior
+      .emitThreadEvent((queued ? "message.dispatched" : "thread.active") as never, (queued ? { entry: { threadId, initiator: "user", senderThreadId: null, originPluginId: null } } : { thread: makeThreadResponse({ id: threadId, projectId: PROJECT }) }) as never)
+      .then(() => new Promise((resolve) => setTimeout(resolve, 20)));
+  };
   const emit = (event: "thread.idle" | "thread.active" | "thread.failed" | "thread.archived", threadId: string, extra = {}) =>
     harness.behavior
       .emitThreadEvent(event, { thread: makeThreadResponse({ id: threadId, projectId: PROJECT }), ...extra } as never)
@@ -110,6 +128,7 @@ function setup() {
     enqueue,
     tool,
     emit,
+    founderTypes,
     item,
     breakSpawn: (broken: boolean) => (failSpawn = broken),
   };
@@ -306,29 +325,32 @@ describe("pipeline handoffs", () => {
   });
 });
 
-describe("builder and plan reviewer go back and forth without the founder", () => {
+describe("a ticket's issue owner fields everything about it", () => {
+  // th_1 reviews the plan and so owns JUS-1; th_2 builds it.
   const start = async () => {
     await t.enqueue("JUS-1", "Coach", "planned");
+    expect(t.spawned[0]!.prompt).toContain("You are the issue owner for JUS-1");
     await t.tool("factory_stage_done", "th_1", { outcome: "complete", summary: "Plan reviewed." });
     expect(t.spawned.at(-1)).toMatchObject({ id: "th_2", title: "JUS-1 · Execution" });
   };
 
-  it("sends the builder's question to the thread that reviewed the plan, and resumes on its reply", async () => {
+  it("sends the builder's question to the owner, and resumes on its reply", async () => {
     await start();
     const asked = await t.tool("factory_ask_planner", "th_2", { question: "PLANNER INPUT REQUIRED: the replay contract cannot requalify." });
-    expect(asked).toContain("planner");
+    expect(asked).toContain("issue owner");
     expect(t.sent.at(-1)).toMatchObject({ threadId: "th_1", senderThreadId: "th_2" });
     expect(t.sent.at(-1)!.text).toContain("the replay contract cannot requalify");
     expect(t.sent.at(-1)!.text).toContain('to: "JUS-1:build"');
-    expect((await t.item("JUS-1")).status).toBe("with-planner");
+    expect((await t.item("JUS-1")).status).toBe("with-owner");
     expect((await t.state()).inbox).toEqual([]);
 
     // The builder ending its turn while it waits is not a stall.
-    await t.emit("thread.idle", "th_2", { lastAssistantText: "Waiting on the planner." });
+    await t.emit("thread.idle", "th_2", { lastAssistantText: "Waiting on the owner." });
     expect(t.sent.at(-1)!.threadId).toBe("th_1");
 
     await t.tool("factory_message", "th_1", { to: "JUS-1:build", message: "Requalify against v5.12.0; plan updated." });
     expect(t.sent.at(-1)).toMatchObject({ threadId: "th_2", senderThreadId: "th_1" });
+    expect(t.sent.at(-1)!.text).toContain("Message from the issue owner for JUS-1");
     expect((await t.item("JUS-1")).status).toBe("running");
 
     // Round two works the same way, and the build then finishes normally.
@@ -339,63 +361,30 @@ describe("builder and plan reviewer go back and forth without the founder", () =
     expect((await t.state()).inbox).toEqual([]);
   });
 
-  it("reminds a planner that goes quiet, then tells the founder", async () => {
+  it("keeps every other thread on the ticket out of the founder's inbox: a builder's question or blocker goes to the owner", async () => {
     await start();
-    await t.tool("factory_ask_planner", "th_2", { question: "Blocked on X." });
-    await t.emit("thread.idle", "th_1", { lastAssistantText: "Thinking." });
-    expect(t.sent.at(-1)).toMatchObject({ threadId: "th_1" });
-    expect(t.sent.at(-1)!.text).toContain("still waiting on you");
-    await t.emit("thread.idle", "th_1", { lastAssistantText: "Still thinking." });
-    expect((await t.state()).inbox[0]).toMatchObject({ kind: "stalled", from: "Planner · JUS-1" });
-  });
-
-  it("asks whoever queued the ticket when no plan review ran here", async () => {
-    const orchestrator = await t.rpc<{ threadId: string }>("startAgent", { projectId: PROJECT, agentId: "orchestrator" });
-    await t.tool("factory_enqueue", orchestrator.threadId, { key: "JUS-9", title: "Nine", lane: "Coach", pipeline: "reviewed" });
-    await t.tool("factory_ask_planner", "th_2", { question: "Blocked." });
-    expect(t.sent.at(-1)!.threadId).toBe(orchestrator.threadId);
-  });
-
-  it("offers the tool to every stage thread", async () => {
-    const config = await t.harness.behavior.resolveAgentConfiguration(
-      makePluginAgentConfigurationContext({ pluginMetadata: { binding: { kind: "stage", itemId: "itm_1", stage: "build" } } } as never),
-    );
-    expect((config?.tools ?? []).map((tool: { name: string }) => tool.name)).toContain("factory_ask_planner");
-  });
-});
-
-describe("founder inbox", () => {
-  it("sends a stage's founder question to the chief of staff first, who can settle it without the founder", async () => {
-    await t.enqueue("JUS-1", "Coach", "reviewed");
-    const reply = await t.tool("factory_ask_founder", "th_1", { kind: "decision",
-      question: "May I raise the QA call budget from 10 to 20?",
-      context: "The replay needs 20 calls.",
-    });
-    expect(reply).toContain("chief of staff");
-
-    // The chief of staff is started on demand and receives the whole question.
-    expect(t.spawned.at(-1)).toMatchObject({ id: "th_2", title: "Chief of staff", pinned: true });
-    expect(t.sent.at(-1)).toMatchObject({ threadId: "th_2", senderThreadId: "th_1" });
+    const reply = await t.tool("factory_ask_founder", "th_2", { kind: "decision", question: "May I raise the QA call budget from 10 to 20?", context: "The replay needs 20 calls." });
+    expect(reply).toContain("issue owner");
+    expect(t.sent.at(-1)).toMatchObject({ threadId: "th_1", senderThreadId: "th_2" });
     expect(t.sent.at(-1)!.text).toContain("raise the QA call budget");
-    expect(t.sent.at(-1)!.text).toContain('"JUS-1:build"');
     expect((await t.state()).inbox).toEqual([]);
-    expect((await t.item("JUS-1")).status).toBe("triage");
-
-    // Waiting on the chief of staff is not a stall.
-    await t.emit("thread.idle", "th_1", { lastAssistantText: "Waiting." });
-    expect(t.sent.at(-1)!.threadId).toBe("th_2");
-
-    await t.tool("factory_message", "th_2", { to: "JUS-1:build", message: "Yes, 20 calls. Record it in the plan." });
-    expect(t.sent.at(-1)).toMatchObject({ threadId: "th_1" });
+    expect((await t.item("JUS-1")).status).toBe("with-owner");
+    // The owner settles it without the founder.
+    await t.tool("factory_message", "th_1", { to: "JUS-1:build", message: "Yes, 20 calls. Record it in the plan." });
     expect((await t.item("JUS-1")).status).toBe("running");
+
+    await t.tool("factory_stage_done", "th_2", { outcome: "blocked", summary: "Dev database is down." });
+    expect(t.sent.at(-1)).toMatchObject({ threadId: "th_1" });
+    expect(t.sent.at(-1)!.text).toContain("Dev database is down.");
     expect((await t.state()).inbox).toEqual([]);
+    expect((await t.item("JUS-1")).status).toBe("with-owner");
   });
 
-  it("lets the chief of staff put one clear question to the founder, whose answer goes to the ticket's thread", async () => {
-    await t.enqueue("JUS-1", "Coach", "reviewed");
-    await t.tool("factory_ask_founder", "th_1", { kind: "decision", question: "Rest day or missed?", context: "long agent text" });
-    await t.tool("factory_ask_founder", "th_2", { kind: "decision",
-      about: "JUS-1:build",
+  it("lets the owner ask the founder, and after his answer the ticket waits on the owner to pass it on", async () => {
+    await start();
+    await t.tool("factory_ask_founder", "th_2", { kind: "decision", question: "Rest day or missed?", context: "long agent text" });
+    await t.tool("factory_ask_founder", "th_1", {
+      kind: "decision",
       question: "Should a skipped run count as a rest day?",
       context: "Du skipped Tuesday; today Coach counts it as rest.",
       options: ["Count it as rest", "Count it as missed"],
@@ -403,29 +392,136 @@ describe("founder inbox", () => {
     });
     const before = await t.state();
     expect(before.inbox).toHaveLength(1);
-    expect(before.inbox[0]).toMatchObject({ kind: "question", from: "Execution · JUS-1", threadId: "th_1", question: "Should a skipped run count as a rest day?" });
+    expect(before.inbox[0]).toMatchObject({ kind: "question", from: "Issue owner · JUS-1", threadId: "th_1", question: "Should a skipped run count as a rest day?" });
     expect((await t.item("JUS-1")).status).toBe("needs-founder");
 
     await t.rpc("answer", { entryId: before.inbox[0]!.id, answer: "Count it as missed." });
-    // The thread gets the ask as the founder read it, not only his answer.
+    expect(t.sent.at(-1)).toMatchObject({ threadId: "th_1" });
     expect(t.sent.at(-1)!.text).toContain('The founder was asked: "Should a skipped run count as a rest day?"');
     expect(t.sent.at(-1)!.text).toContain("Du skipped Tuesday; today Coach counts it as rest.");
-    expect(t.sent.at(-1)).toMatchObject({ threadId: "th_1" });
     expect(t.sent.at(-1)!.text).toContain("Count it as missed.");
     expect((await t.state()).inbox).toHaveLength(0);
+    // The builder is still waiting, so this is not "running" with nobody on it.
+    expect((await t.item("JUS-1")).status).toBe("with-owner");
+    await t.tool("factory_message", "th_1", { to: "JUS-1:build", message: "Count it as missed." });
     expect((await t.item("JUS-1")).status).toBe("running");
   });
 
-  it("reminds a chief of staff that goes quiet, then tells the founder", async () => {
-    await t.enqueue("JUS-1", "Coach", "reviewed");
-    await t.tool("factory_stage_done", "th_1", { outcome: "blocked", summary: "Dev database is down." });
-    expect(t.sent.at(-1)!.text).toContain("Dev database is down.");
-    await t.emit("thread.idle", "th_2", { lastAssistantText: "Hm." });
+  it("reminds an owner that goes quiet, then tells the founder", async () => {
+    await start();
+    await t.tool("factory_ask_planner", "th_2", { question: "Blocked on X." });
+    await t.emit("thread.idle", "th_1", { lastAssistantText: "Thinking." });
+    expect(t.sent.at(-1)).toMatchObject({ threadId: "th_1" });
     expect(t.sent.at(-1)!.text).toContain("still waiting on you");
-    await t.emit("thread.idle", "th_2", { lastAssistantText: "Hm." });
-    expect((await t.state()).inbox[0]).toMatchObject({ kind: "stalled", from: "Chief of staff · JUS-1" });
+    await t.emit("thread.idle", "th_1", { lastAssistantText: "Still thinking." });
+    expect((await t.state()).inbox[0]).toMatchObject({ kind: "stalled", from: "Issue owner · JUS-1" });
   });
 
+  it("starts an owner for a ticket whose plan was reviewed elsewhere, the first time one is needed", async () => {
+    await t.enqueue("JUS-9", "Coach", "reviewed");
+    expect(t.spawned).toHaveLength(1);
+    await t.tool("factory_ask_planner", "th_1", { question: "Blocked." });
+    expect(t.spawned.at(-1)).toMatchObject({ id: "th_2", title: "JUS-9 · Issue owner", environment: { type: "reuse", environmentId: "env_th_1" } });
+    expect(t.spawned.at(-1)!.prompt).toContain("Its plan was reviewed before it reached the factory");
+    expect(t.sent.at(-1)).toMatchObject({ threadId: "th_2", senderThreadId: "th_1" });
+    // The same owner is used from then on.
+    await t.tool("factory_message", "th_2", { to: "JUS-9:build", message: "Do X." });
+    await t.tool("factory_ask_founder", "th_1", { kind: "decision", question: "And Y?" });
+    expect(t.spawned).toHaveLength(2);
+    expect(t.sent.at(-1)!.threadId).toBe("th_2");
+  });
+
+  it("keeps the owner's ticket note and sends it back with everything handed to the owner", async () => {
+    await start();
+    expect(await t.tool("factory_ticket_note", "th_2", { note: "Mine." })).toContain("Only a ticket's issue owner");
+    await t.tool("factory_ticket_note", "th_1", { note: "Founder wants missed, not rest. Open: copy for the banner." });
+    await t.tool("factory_ask_planner", "th_2", { question: "Which copy?" });
+    expect(t.sent.at(-1)!.text).toContain("Your ticket note for JUS-1:\nFounder wants missed, not rest. Open: copy for the banner.");
+  });
+
+  it("clears an inbox entry when the founder answers in the thread instead", async () => {
+    await start();
+    await t.tool("factory_ask_planner", "th_2", { question: "Which copy?" });
+    await t.tool("factory_ask_founder", "th_1", { kind: "decision", question: "Banner copy A or B?" });
+    expect((await t.state()).inbox).toHaveLength(1);
+    await t.founderTypes("th_2");
+    expect((await t.state()).inbox).toHaveLength(1);
+    // A turn an agent's message started is not his answer.
+    await t.emit("thread.active", "th_1");
+    expect((await t.state()).inbox).toHaveLength(1);
+    await t.founderTypes("th_1");
+    expect((await t.state()).inbox).toEqual([]);
+    expect((await t.item("JUS-1")).status).toBe("with-owner");
+
+    // The same when his message had to wait behind a running turn.
+    await t.tool("factory_ask_founder", "th_1", { kind: "decision", question: "And the colour?" });
+    await t.founderTypes("th_1", true);
+    expect((await t.state()).inbox).toEqual([]);
+  });
+
+  it("offers the tools and the owner's charter to every stage thread", async () => {
+    const config = await t.harness.behavior.resolveAgentConfiguration(
+      makePluginAgentConfigurationContext({ pluginMetadata: { binding: { kind: "stage", itemId: "itm_1", stage: "build" } } } as never),
+    );
+    const tools = (config?.tools ?? []).map((tool: { name: string }) => tool.name);
+    expect(tools).toContain("factory_ask_planner");
+    expect(tools).toContain("factory_ticket_note");
+  });
+});
+
+describe("small bugs ride with a planned ticket", () => {
+  it("attaches a small bug to the next planned ticket in its lane, and tells every stage about it", async () => {
+    await t.enqueue("JUS-1", "Coach", "planned");
+    await t.tool("factory_stage_done", "th_1", { outcome: "complete", summary: "Plan reviewed." });
+    await t.enqueue("JUS-2", "Coach", "planned");
+    // JUS-1 is already being built, so the bug rides with JUS-2, which has not started.
+    const queued = await t.tool("factory_enqueue", "th_1", { key: "JUS-50", title: "Skip button misaligned", lane: "Coach", pipeline: "small-bug" });
+    expect(queued).toContain("JUS-50 rides with JUS-2");
+    const state = await t.state();
+    expect(state.items.map((item) => item.key)).toEqual(["JUS-1", "JUS-2"]);
+    expect((await t.item("JUS-2")).riders).toEqual([{ key: "JUS-50", title: "Skip button misaligned", brief: "" }]);
+    // No workspace or thread of its own.
+    expect(t.spawned).toHaveLength(2);
+    await expect(t.enqueue("JUS-50", "Coach", "small-bug")).rejects.toThrow(/riding with JUS-2/);
+
+    await t.tool("factory_stage_done", "th_2", { outcome: "complete", summary: "Built." });
+    await t.tool("factory_stage_done", "th_3", { outcome: "complete", summary: "Reviewed." });
+    await t.tool("factory_stage_done", "th_4", { outcome: "complete", summary: "Shipped." });
+    // JUS-2 starts: its owner and then its builder are both told about the bug.
+    expect(t.spawned.at(-1)).toMatchObject({ id: "th_5", title: "JUS-2" });
+    expect(t.spawned.at(-1)!.prompt).toContain("- JUS-50: Skip button misaligned");
+    await t.tool("factory_stage_done", "th_5", { outcome: "complete", summary: "Plan reviewed." });
+    expect(t.spawned.at(-1)!.title).toBe("JUS-2 · Execution");
+    expect(t.spawned.at(-1)!.prompt).toContain("Small bugs ride with this ticket");
+    expect(t.spawned.at(-1)!.prompt).toContain("- JUS-50: Skip button misaligned");
+  });
+
+  it("tells an owner already at work when a small bug joins its ticket", async () => {
+    await t.enqueue("JUS-1", "Coach", "planned");
+    await t.enqueue("JUS-51", "", "small-bug");
+    expect((await t.item("JUS-1")).riders.map((rider) => rider.key)).toEqual(["JUS-51"]);
+    expect(t.sent.at(-1)).toMatchObject({ threadId: "th_1" });
+    expect(t.sent.at(-1)!.text).toContain("A small bug now rides with JUS-1: JUS-51");
+  });
+
+  it("runs a small bug on its own only when no planned ticket is coming up, and moves it if its ticket is cancelled", async () => {
+    await t.enqueue("JUS-60", "Coach", "small-bug");
+    expect(t.spawned.at(-1)).toMatchObject({ title: "JUS-60" });
+
+    await t.enqueue("JUS-1", "Other", "planned");
+    await t.enqueue("JUS-2", "Other", "planned");
+    await t.enqueue("JUS-61", "Other", "small-bug");
+    await t.tool("factory_stage_done", "th_2", { outcome: "complete", summary: "Plan reviewed." });
+    await t.enqueue("JUS-62", "Other", "small-bug");
+    expect((await t.item("JUS-2")).riders.map((rider) => rider.key)).toEqual(["JUS-62"]);
+    await t.rpc("cancel", { itemId: (await t.item("JUS-2")).id });
+    // Nothing planned is left to ride with in that lane, so it queues alone.
+    expect((await t.item("JUS-62")).pipeline).toBe("small-bug");
+    expect((await t.item("JUS-1")).riders.map((rider) => rider.key)).toEqual(["JUS-61"]);
+  });
+});
+
+describe("founder inbox", () => {
   it("signals open windows to chime when something lands in the inbox", async () => {
     const arrivals = () => t.harness.inspection.realtimeSignals.filter((signal) => signal.channel === "factory-inbox-arrived").length;
     const planner = await t.rpc<{ threadId: string }>("startAgent", { projectId: PROJECT, agentId: "orchestrator" });
@@ -524,7 +620,7 @@ describe("founder inbox", () => {
 
     await t.tool("factory_ask_founder", "th_1", { kind: "decision", question: "Which unit?" });
     expect((await t.state()).inbox).toEqual([]);
-    expect((await t.item("JUS-1")).status).toBe("triage");
+    expect((await t.item("JUS-1")).status).toBe("with-owner");
   });
 
   it("puts a failed turn in the inbox and retries it on request", async () => {
@@ -658,7 +754,8 @@ describe("standing agents and messaging", () => {
     expect(names(outsider?.tools)).toEqual([]);
 
     const worker = await configure({ binding: { kind: "stage", itemId: "itm_1", stage: "build" } });
-    expect(names(worker?.tools)).toEqual(["factory_stage_done", "factory_ask_founder", "factory_ask_planner", "factory_message"]);
+    expect(names(worker?.tools)).toEqual(["factory_stage_done", "factory_ask_founder", "factory_ask_planner", "factory_ticket_note", "factory_message"]);
+    expect(JSON.stringify(worker?.skills)).toContain("factory-issue-owner");
 
     const orchestrator = await configure({ binding: { kind: "agent", agentId: "orchestrator", projectId: PROJECT } });
     expect(names(orchestrator?.tools)).toContain("factory_enqueue");
@@ -700,19 +797,94 @@ describe("the founder tries a visible change before it ships", () => {
     expect((await t.state()).inbox).toEqual([]);
   });
 
-  it("sends his notes to the builder, and asks him again after the fix", async () => {
-    await toGate();
-    const first = (await t.state()).inbox[0]!;
+  // th_1 owns JUS-1 (it reviewed the plan), th_2 builds, th_3 reviews the code.
+  const ownedToGate = async () => {
+    await t.enqueue("JUS-1", "Coach", "planned");
+    await t.tool("factory_stage_done", "th_1", { outcome: "complete", summary: "Plan reviewed." });
+    await t.tool("factory_stage_done", "th_2", { outcome: "complete", summary: "Built.", founder_check: CHECK });
+    await t.tool("factory_stage_done", "th_3", { outcome: "complete", summary: "Review complete." });
+    const entry = (await t.state()).inbox[0]!;
+    // The check lives in the owner's thread: that is where he talks about this ticket.
+    expect(entry).toMatchObject({ kind: "check", threadId: "th_1" });
+    return entry;
+  };
+
+  it("sends his notes to the issue owner, who sends the builder the work; he is asked again after the fix", async () => {
+    const first = await ownedToGate();
     await t.rpc("answer", { entryId: first.id, answer: "The check mark is too small." });
     expect(t.sent.at(-1)).toMatchObject({ threadId: "th_1" });
     expect(t.sent.at(-1)!.text).toContain("The check mark is too small.");
-    expect((await t.item("JUS-1")).status).toBe("running");
+    expect(t.sent.at(-1)!.text).toContain('to: "JUS-1:build"');
+    expect((await t.state()).inbox).toEqual([]);
+    expect((await t.item("JUS-1")).status).toBe("with-owner");
 
-    await t.tool("factory_stage_done", "th_1", { outcome: "complete", summary: "Bigger check mark.", founder_check: { ...CHECK, now: "One tap checks a set off, with a 24pt mark." } });
+    // An owner that sits on his notes is reminded.
+    await t.emit("thread.idle", "th_1", { lastAssistantText: "Hm." });
+    expect(t.sent.at(-1)!.text).toContain("The founder's notes on JUS-1 are still with you");
+
+    const sent = await t.tool("factory_message", "th_1", { to: "JUS-1:build", message: "Make the check mark 24pt. Plan updated." });
+    expect(sent).toContain("JUS-1 is back in that stage");
+    expect(t.sent.at(-1)).toMatchObject({ threadId: "th_2" });
+    expect(t.sent.at(-1)!.text).toContain("call factory_stage_done again");
+    expect(await t.item("JUS-1")).toMatchObject({ status: "running", stageIndex: 1 });
+
+    await t.tool("factory_stage_done", "th_2", { outcome: "complete", summary: "Bigger check mark.", founder_check: { ...CHECK, now: "One tap checks a set off, with a 24pt mark." } });
     // No second code review, and still no ship until he has tried it again.
-    expect(t.spawned).toHaveLength(2);
-    expect((await t.state()).inbox[0]).toMatchObject({ kind: "check" });
+    expect(t.spawned).toHaveLength(3);
+    expect((await t.state()).inbox[0]).toMatchObject({ kind: "check", threadId: "th_1" });
     expect((await t.state()).inbox[0]!.context).toContain("with a 24pt mark.");
+  });
+
+  it("takes notes he types in the owner's thread the same way, and lets the owner hand the check back unchanged", async () => {
+    await ownedToGate();
+    await t.founderTypes("th_1");
+    expect((await t.state()).inbox).toEqual([]);
+    expect((await t.item("JUS-1")).status).toBe("with-owner");
+
+    expect(await t.tool("factory_stage_done", "th_1", { outcome: "blocked", summary: "x" })).toContain('Only outcome \\"complete\\" applies here');
+    await t.tool("factory_stage_done", "th_1", { outcome: "complete", summary: "The mark is already 24pt; your phone has Larger Text on." });
+    const again = (await t.state()).inbox[0]!;
+    expect(again).toMatchObject({ kind: "check", threadId: "th_1" });
+    expect(again.context).toContain("**From the issue owner:** The mark is already 24pt; your phone has Larger Text on.");
+    expect(again.context).toContain("**Now:** One tap checks a set off.");
+    expect((await t.item("JUS-1")).status).toBe("needs-founder");
+    await t.rpc("approve", { entryId: again.id });
+    expect(t.spawned.at(-1)!.title).toBe("JUS-1 · Ship");
+  });
+
+  it("reopens a shipped ticket when its owner sends the builder follow-up work", async () => {
+    const entry = await ownedToGate();
+    await t.rpc("approve", { entryId: entry.id });
+    await t.tool("factory_stage_done", "th_4", { outcome: "complete", summary: "Merged." });
+    expect((await t.item("JUS-1")).status).toBe("done");
+
+    // He gives feedback after it shipped; the owner plans the fix and sends it on.
+    await t.tool("factory_message", "th_1", { to: "JUS-1:build", message: "Follow-up: the mark overlaps long exercise names." });
+    expect(await t.item("JUS-1")).toMatchObject({ status: "running", stageIndex: 1 });
+    await t.tool("factory_stage_done", "th_2", { outcome: "complete", summary: "Fixed the overlap.", founder_check: CHECK });
+    // It comes back to him to try before it ships again.
+    expect((await t.state()).inbox[0]).toMatchObject({ kind: "check", threadId: "th_1" });
+  });
+
+  it("sends his notes straight to the builder of a small bug running alone, which owns itself", async () => {
+    await t.enqueue("JUS-7", "Coach", "small-bug");
+    await t.tool("factory_ask_founder", "th_1", { kind: "todo", question: "Record the menu" });
+    const entry = (await t.state()).inbox[0]!;
+    // Its builder is its owner, so it reaches the inbox itself.
+    expect(entry).toMatchObject({ kind: "todo", threadId: "th_1", from: "Fix · JUS-7" });
+    await t.rpc("answer", { entryId: entry.id, answer: "Done." });
+    expect(t.sent.at(-1)).toMatchObject({ threadId: "th_1" });
+    expect(t.spawned).toHaveLength(1);
+  });
+
+  it("starts an owner for his notes on a ticket whose plan was reviewed elsewhere", async () => {
+    await toGate();
+    const first = (await t.state()).inbox[0]!;
+    await t.rpc("answer", { entryId: first.id, answer: "The check mark is too small." });
+    // A ticket reviewed elsewhere gets its owner now, and the notes go there.
+    expect(t.spawned.at(-1)!.title).toBe("JUS-1 · Issue owner");
+    expect(t.sent.at(-1)).toMatchObject({ threadId: "th_3" });
+    expect(t.sent.at(-1)!.text).toContain("The check mark is too small.");
   });
 
   it("ships straight through when no stage recorded a check", async () => {
@@ -926,6 +1098,23 @@ describe("configuration and CLI", () => {
     expect(upgraded.roles.build.label).toBe("Builder, tier 1");
     expect(upgraded.roles["build-tier-3"]).toMatchObject({ label: "Builder, tier 3", providerId: "codex", model: "gpt-sol", reasoningLevel: "medium" });
     expect(upgraded.stages.build.tierRoles).toEqual({ "2": "build-tier-2", "3": "build-tier-3" });
+  });
+
+  it("retires the chief of staff from a configuration saved before issue owners, and makes the plan reviewer the owner", async () => {
+    const { config } = await t.state();
+    const old = {
+      ...config,
+      roles: { ...config.roles, "plan-review": { ...config.roles["plan-review"], label: "Plan reviewer", model: "fable" }, "chief-of-staff": { ...config.roles.ship, label: "Chief of staff" } },
+      agents: { ...config.agents, "chief-of-staff": { label: "Chief of staff", role: "chief-of-staff", skill: "factory-chief-of-staff", memoryPath: "docs/chief.md" } },
+      stages: Object.fromEntries(Object.entries(config.stages).map(([id, stage]) => [id, { ...stage, owner: false }])),
+    };
+    await t.rpc("saveConfig", { projectId: PROJECT, config: old });
+    const upgraded = (await t.state()).config;
+    expect(upgraded.agents["chief-of-staff"]).toBeUndefined();
+    expect(upgraded.roles["chief-of-staff"]).toBeUndefined();
+    expect(upgraded.roles["plan-review"]).toMatchObject({ label: "Issue owner", model: "fable" });
+    expect(upgraded.stages["plan-review"]!.owner).toBe(true);
+    expect(upgraded.stages.build!.owner).toBe(false);
   });
 
   it("rejects a configuration whose stage names an undefined role", async () => {

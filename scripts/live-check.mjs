@@ -290,25 +290,40 @@ async function main() {
     check("review receives the builder's handoff", lastMessage(review).includes("Built on its branch; tests pass."));
     check("reporting a stage clears its stall from the inbox", !status().inbox.some((e) => e.threadId === build));
 
-    // --- a stage's question goes to the chief of staff, who takes it to the founder
+    // --- a stage's question goes to the ticket's issue owner, who takes it to the founder
     bb(
       ["factory", "ask", "Should rest days count as missed?", "--context", "Today they count as rest.", "--option", "Count as rest", "--option", "Count as missed", "--recommend", "Count as missed."],
       as(review),
     );
-    const chief = await until(() => threads().find((t) => t.title === "Chief of staff"));
-    check("a stage's question starts the chief of staff and goes there first", Boolean(chief) && status().inbox.every((e) => e.kind !== "question"));
-    check("the ticket shows as with the chief of staff", ticket("LIVE-1").status === "triage");
+    const owner = await until(() => threads().find((t) => t.title === "LIVE-1 · Issue owner"));
+    check("a stage's question starts the ticket's issue owner and goes there first", Boolean(owner) && status().inbox.every((e) => e.kind !== "question"));
+    check("the owner works in the ticket's own workspace", (await until(() => threads().find((t) => t.id === owner.id)?.environmentId)) === buildThread?.environmentId);
+    check("the ticket shows as with its issue owner", ticket("LIVE-1").status === "with-owner");
+    const toOwner = await until(() => (lastMessage(owner.id).includes("Should rest days count as missed?") ? true : null));
+    check("the owner receives the stage's question", toOwner === true);
     bb(
-      ["factory", "ask", "Should a rest day count as missed?", "--about", "LIVE-1:code-review", "--context", "Today it counts as rest.", "--option", "Count as rest", "--option", "Count as missed", "--recommend", "Count as missed."],
-      as(chief.id),
+      ["factory", "ask", "Should a rest day count as missed?", "--context", "Today it counts as rest.", "--option", "Count as rest", "--option", "Count as missed", "--recommend", "Count as missed."],
+      as(owner.id),
     );
     const question = status().inbox.find((e) => e.kind === "question");
-    check("the chief of staff's question lands in the inbox for that ticket", question?.from === "Code review · LIVE-1" && question.options.length === 2);
+    check("the owner's question lands in the inbox, in the owner's thread", question?.from === "Issue owner · LIVE-1" && question.threadId === owner.id && question.options.length === 2);
     check("the ticket shows as waiting on the founder", ticket("LIVE-1").status === "needs-founder");
-    bb(["factory", "answer", question.id, "Count as missed."]);
+    // The founder answers by typing in the owner's thread, not in the inbox.
+    bb(["thread", "tell", owner.id, "Count as missed.", "--mode", "auto"]);
+    const cleared1 = await until(() => (status().inbox.some((e) => e.kind === "question") ? null : true));
+    check("typing the answer in the thread clears the inbox entry", cleared1 === true);
+    check("the ticket then waits on its owner to pass the answer on", ticket("LIVE-1").status === "with-owner");
+    bb(["factory", "note", "Founder: a rest day counts as missed."], as(owner.id));
+    bb(["factory", "message", "LIVE-1:code-review", "Count as missed."], as(owner.id));
     const answered = await until(() => (lastMessage(review).includes("Count as missed.") ? true : null));
-    check("the answer is delivered to the thread that asked", answered === true);
-    check("the inbox clears after answering", !status().inbox.some((e) => e.kind === "question"));
+    const after = ticket("LIVE-1").status;
+    // The echo model answers at once and never reports, so by now it may have been reminded and flagged.
+    check("the owner's reply reaches the stage that asked, and the ticket is back with that stage", answered === true && (after === "running" || after === "stalled"), `answered=${answered} status=${after}`);
+
+    // --- a small bug gets no workspace: it rides with the next planned ticket in its lane
+    const before = threads().length;
+    bb(["factory", "enqueue", "LIVE-4", "Typo on the greeting", "--lane", "Coach", "--pipeline", "small-bug", "--project", project]);
+    check("a small bug rides with the next ticket in its lane", ticket("LIVE-2").riders?.[0]?.key === "LIVE-4" && !ticket("LIVE-4") && threads().length === before);
 
     // --- review returns changes; author fixes; ticket moves past the review
     bb(["factory", "done", "--outcome", "changes_requested", "--summary", "Rename the helper."], as(review));
@@ -317,6 +332,7 @@ async function main() {
     bb(["factory", "done", "--outcome", "complete", "--summary", "Helper renamed.", "--founder-check", "Open the greeting screen as demo@example.com and see the new name."], as(build));
     const gate = await until(() => status().inbox.find((e) => e.kind === "check"));
     check("a visible change waits for the founder to try it before ship", Boolean(gate) && !ticket("LIVE-1").threads.ship);
+    check("his check lives in the owner's thread", gate.threadId === owner.id);
 
     // --- the founder presses Run on that inbox entry, in a real browser
     await runButtonChecks(gate);
@@ -339,6 +355,8 @@ async function main() {
     check("archiving its workspace clears a finished ticket from the board", cleared === true);
     const next = await until(() => (ticket("LIVE-2").status !== "queued" ? true : null));
     check("the next ticket in the lane starts", next === true);
+    const told = await until(() => (lastMessage(ticket("LIVE-2").threads.build ?? "").includes("LIVE-4: Typo on the greeting") ? true : null));
+    check("its builder is told about the small bug riding with it", told === true);
   } finally {
     const failed = results.filter((result) => !result.ok).length;
     console.log(`\n${results.length - failed}/${results.length} live checks passed.`);

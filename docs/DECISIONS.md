@@ -11,6 +11,25 @@ What Gideon has decided about the factory, newest first. Check here before re-op
 
 ---
 
+## 20 November 2026 (issue owners)
+
+**Each ticket has an issue owner, and the standing chief of staff is retired.** The thread that reviews a ticket's plan owns the ticket until it ships: it is the one thread the founder talks to about it, from the inbox or in the thread, and the only one that reaches his inbox for it. (Founder)
+"That way there is always one thread that I talk to for each ticket. Builder and shipper are basically just sub agents of the issue owner." It supersedes the chief of staff decision below.
+
+**His notes on a ticket go to the owner, who plans the fix and sends it to the builder.** (Founder: "I sent it to the plan reviewer because I wanted them to plan the fix and send that to the builder.")
+
+**A reply typed in a thread clears that thread's inbox entry.** (Founder)
+
+**Small bugs get no workspace of their own.** A planned small bug rides with the next-up ticket in a swimlane: the owner picks it up and the builder fixes it with the main ticket, so it gets no CI run of its own and does not wait. (Founder)
+
+**The owner fields conversations; the factory still moves tickets.** A separate code reviewer always reviews a planned ticket, because the owner approved the plan and would miss where the plan was wrong. The owner keeps a short ticket note so a long thread cannot lose what the founder said. (Agent proposed; Founder: "I like your other push back.")
+
+**Review findings still go straight to the builder**, not through the owner: each pass through the owner would cost a turn on the strongest model for no decision. The builder takes a disputed finding to the owner. (Agent)
+
+**Builders and shippers stay as threads, not sub-agents, for now.** (Founder: "we don't have to do that now")
+
+**A small bug with no planned ticket coming up runs alone, and its builder owns it.** (Agent)
+
 ## 20 November 2026 (inbox reply box)
 
 **The inbox reply box behaves like a real composer.** It grows as he types, takes pictures, videos and other files, keeps an unsent draft when he leaves the page, and moves that draft into the thread's composer when he presses Open thread. (Founder: "Four big problems")

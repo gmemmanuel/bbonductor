@@ -257,6 +257,12 @@ export default async function plugin(bb: BbPluginApi) {
     guard("active", async () => {
       await engine.onActive(thread.id);
       await engine.reconcileInteractions();
+      // A turn the founder started himself answers what the thread asked him.
+      if (!engine.awaitingFounder(thread.id)) return;
+      const [latest] = await bb.sdk.threads.events.list({ threadId: thread.id, types: ["client/turn/requested"], order: "desc", limit: "1" });
+      const request = latest as { createdAt?: number; data?: { initiator?: string; senderThreadId?: string | null } } | undefined;
+      if (request?.data?.initiator !== "user" || request.data.senderThreadId != null) return;
+      await engine.onFounderMessage(thread.id, request.createdAt);
     });
   });
   bb.events.on("thread.failed", ({ thread, error }) => {
@@ -272,6 +278,13 @@ export default async function plugin(bb: BbPluginApi) {
     guard("limit", async () => {
       await engine.onLimit(event.threadId, resets.length === 0 ? null : Math.max(...resets));
     });
+  });
+  // The founder typing in a thread answers what that thread had asked him.
+  // bb raises this event only for a message that had to queue behind a running
+  // turn; one that starts a turn is found in the thread's log (see below).
+  bb.events.on("message.dispatched", ({ entry }) => {
+    if (entry.initiator !== "user" || entry.senderThreadId !== null || entry.originPluginId !== null) return;
+    guard("founder message", () => engine.onFounderMessage(entry.threadId));
   });
   bb.events.on("thread.archived", ({ thread }) => {
     guard("archived", () => engine.onGone(thread.id));
@@ -337,7 +350,7 @@ export default async function plugin(bb: BbPluginApi) {
   bb.agents.registerTool({
     name: "factory_ask_founder",
     description:
-      "Put a decision in the founder's inbox. Use only for choices the founder must make: product behavior, scope, or a contradiction with a recorded decision. Then end your turn; the answer arrives in this thread.",
+      "Bring the founder something only he can decide or do: product behavior, scope, a contradiction with a recorded decision, or a step only he can take. A ticket's issue owner and the standing agents reach his inbox directly; from any other ticket thread this goes to the issue owner, who answers it or takes it to him. Then end your turn; the answer arrives in this thread.",
     presentation: { label: { pending: "Asking the founder", completed: "Asked the founder" } },
     parameters: z.object({
       question: z.string().min(1).max(200).describe("The ask itself in one short sentence. Do not repeat the ticket number or title: the inbox shows them above it."),
@@ -349,12 +362,11 @@ export default async function plugin(bb: BbPluginApi) {
         .describe("decision: he must choose between outcomes that differ for a user. todo: there is nothing to choose, he has to do something himself (record his phone, install a build, sign in). test: try something that has already shipped. If you cannot name two outcomes he would be choosing between, it is not a decision."),
       account: z.string().max(200).optional().describe("todo and test only: the test account and password, such as 'demo@example.com / hunter2'."),
       steps: z.array(z.string().min(1).max(300)).max(12).optional().describe("todo and test only: what to do, one action per step, and what he should see."),
-      about: z.string().max(80).optional().describe('Chief of staff only: the ticket thread this is about, such as "JUS-12:build". The founder\'s answer goes to that thread.'),
     }),
     execute: (input, { threadId }) =>
       toolResult(async () => {
         const entry = await engine.ask(threadId, input);
-        if (entry.id === "") return "Sent to the chief of staff, who will either answer you or take it to the founder. The reply arrives in this thread. End your turn now.";
+        if (entry.id === "") return "Sent to this ticket's issue owner, who will either answer you or take it to the founder. The reply arrives in this thread. End your turn now.";
         return "Asked. The founder's answer will arrive in the thread it concerns. End your turn now.";
       }),
   });
@@ -362,12 +374,21 @@ export default async function plugin(bb: BbPluginApi) {
   bb.agents.registerTool({
     name: "factory_ask_planner",
     description:
-      "Send something back to this ticket's planner, the agent that reviewed its plan. Use it whenever your project's process says a question or blocker goes to the planner. Then end your turn; the planner's answer arrives in this thread.",
-    presentation: { label: { pending: "Asking the planner", completed: "Asked the planner" } },
+      "Send something back to this ticket's issue owner, the agent that reviewed its plan. Use it whenever your project's process says a question or blocker goes to the planner. Then end your turn; the owner's answer arrives in this thread.",
+    presentation: { label: { pending: "Asking the issue owner", completed: "Asked the issue owner" } },
     parameters: z.object({
       question: z.string().min(1).max(8000).describe("The complete handoff: what is blocked, the evidence, what you propose, and what you need decided."),
     }),
     execute: ({ question }, { threadId }) => toolResult(() => engine.askPlanner(threadId, question)),
+  });
+
+  bb.agents.registerTool({
+    name: "factory_ticket_note",
+    description:
+      "Issue owner only: replace your short note on this ticket. Keep in it what the founder decided, what is still open, and where the work stands. The factory sends it back to you with everything it hands you, so it survives a long thread.",
+    presentation: { label: { pending: "Saving the ticket note", completed: "Saved the ticket note" } },
+    parameters: z.object({ note: z.string().max(4000).describe("The whole note, replacing the last one. Plain sentences or short bullets.") }),
+    execute: ({ note }, { threadId }) => toolResult(() => engine.setNote(threadId, note)),
   });
 
   bb.agents.registerTool({
@@ -383,7 +404,7 @@ export default async function plugin(bb: BbPluginApi) {
   bb.agents.registerTool({
     name: "factory_enqueue",
     description:
-      "Queue a ticket in a swimlane. A lane works its tickets one at a time, in order; put tickets that would collide in the same lane.",
+      'Queue a ticket in a swimlane. A lane works its tickets one at a time, in order; put tickets that would collide in the same lane. A ticket on the "small-bug" pipeline gets no workspace of its own: it rides with the next planned ticket whose build has not started (in the lane you name, or any lane) and is fixed, reviewed and shipped with it.',
     presentation: { label: { pending: "Queueing a ticket", completed: "Queued a ticket" } },
     parameters: z.object({
       key: z.string().min(1).max(40).describe('Ticket key, such as "JUS-12".'),
@@ -396,6 +417,7 @@ export default async function plugin(bb: BbPluginApi) {
     execute: (input, { threadId, projectId }) =>
       toolResult(async () => {
         const item = await engine.enqueue({ ...input, projectId, originThreadId: threadId });
+        if (item.key !== input.key.trim()) return `${input.key.trim()} rides with ${item.key} in lane "${item.lane}": it is built, reviewed and shipped with that ticket.`;
         return `${item.key} is ${item.status} in lane "${item.lane}".`;
       }),
   });
@@ -413,10 +435,12 @@ export default async function plugin(bb: BbPluginApi) {
   bb.agents.configure((context) => {
     const binding = (context.pluginMetadata as { binding?: { kind?: unknown; agentId?: unknown; projectId?: unknown } })
       .binding;
-    if (binding?.kind === "stage") {
+    if (binding?.kind === "stage" || binding?.kind === "owner") {
+      // Any stage thread may turn out to own its ticket; the engine refuses
+      // the note from one that does not.
       return {
-        tools: ["factory_stage_done", "factory_ask_founder", "factory_ask_planner", "factory_message"],
-        skills: ["factory"],
+        tools: ["factory_stage_done", "factory_ask_founder", "factory_ask_planner", "factory_message", "factory_ticket_note"],
+        skills: ["factory", "factory-issue-owner"],
       };
     }
     if (binding?.kind === "agent") {
@@ -573,4 +597,4 @@ export default async function plugin(bb: BbPluginApi) {
 }
 
 /** Skills this plugin ships; `configure` may only select names from here. */
-const SKILLS = new Set(["factory", "factory-orchestrator", "factory-chief-of-staff", "factory-deploy", "factory-harness-improver", "factory-watch"]);
+const SKILLS = new Set(["factory", "factory-orchestrator", "factory-issue-owner", "factory-deploy", "factory-harness-improver", "factory-watch"]);
