@@ -11,6 +11,13 @@ What Gideon has decided about the factory, newest first. Check here before re-op
 
 ---
 
+## 20 November 2026 (deployer)
+
+**A standing Deployer runs deployments when the founder asks.** (Founder)
+"This can be a simpler model which is why I wouldn't use the chief of staff or planner." It never deploys on its own initiative.
+
+**The standing agents' workspace is named "Agents"**, not after whichever agent started first. (Founder asked why; Agent chose the name)
+
 ## 20 November 2026 (inbox labels)
 
 **The inbox says what kind of thing each entry is:** Decision, Try before it ships, Try on main, To do. (Founder)

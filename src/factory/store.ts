@@ -279,6 +279,24 @@ function withNewDefaults(saved: Config): Config {
       },
     };
   }
+  // The deployer, added 20 November.
+  if (config.agents.deploy === undefined && config.roles.deploy === undefined) {
+    const sibling = config.agents["chief-of-staff"] ?? config.agents.orchestrator;
+    config = {
+      ...config,
+      roles: { ...config.roles, deploy: structuredClone(DEFAULT_CONFIG.roles.deploy!) },
+      agents: {
+        ...config.agents,
+        deploy: {
+          ...structuredClone(DEFAULT_CONFIG.agents.deploy!),
+          memoryPath:
+            sibling === undefined
+              ? DEFAULT_CONFIG.agents.deploy!.memoryPath
+              : sibling.memoryPath.replace(/[^/]*$/u, "Deployer memory.md"),
+        },
+      },
+    };
+  }
   // Stage names the founder chose on 20 November, where the old default is still in place.
   const renamed: Record<string, [string, string]> = {
     "plan-review": ["Review plan", "Plan review"],

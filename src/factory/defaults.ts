@@ -86,6 +86,16 @@ export const DEFAULT_CONFIG: Config = {
       fallbackModel: "",
       fallbackReasoningLevel: "",
     },
+    deploy: {
+      label: "Deployer",
+      providerId: "",
+      model: "",
+      reasoningLevel: "",
+      permissionMode: "",
+      fallbackProviderId: "",
+      fallbackModel: "",
+      fallbackReasoningLevel: "",
+    },
     watch: {
       label: "Watch",
       providerId: "",
@@ -183,6 +193,12 @@ export const DEFAULT_CONFIG: Config = {
       role: "chief-of-staff",
       skill: "factory-chief-of-staff",
       memoryPath: "docs/agents/chief-of-staff/MEMORY.md",
+    },
+    deploy: {
+      label: "Deployer",
+      role: "deploy",
+      skill: "factory-deploy",
+      memoryPath: "docs/agents/deploy/MEMORY.md",
     },
     watch: {
       label: "Watch",

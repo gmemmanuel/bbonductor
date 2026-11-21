@@ -54,6 +54,8 @@ Non-obvious decisions and process knowledge for agents working on the Factory pl
 
 - **An inbox entry's label comes from the channel it used, not from what it says.** Asked to send test steps for tickets that had already shipped, builders used `factory_ask_founder`, the only channel a finished ticket has, and the founder saw test steps labelled "Decision". Every distinct thing the founder is asked to do needs its own kind (`question`, `check`, `test`), or the label lies.
 
+- **Standing agents share one workspace, and bb's Conductor layout titles a workspace by its first chat.** All of them run in the main checkout, so the row read "Chief of staff" for every agent. The factory names that environment "Agents" (`environments.update({ name })`), and the local copy of the layout shows an environment's name when it has one.
+
 ## Testing
 
 - **The fake plugin host proves the rules; only real bb proves the wiring.** Run both. The live check starts bb with its own data folder and ports, so it never touches `~/.bb`.

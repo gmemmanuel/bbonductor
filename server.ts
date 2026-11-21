@@ -105,6 +105,23 @@ export default async function plugin(bb: BbPluginApi) {
     return first.id;
   }
 
+  /** Standing agents share the main checkout; give that workspace its own name. */
+  async function nameAgentsWorkspace(threadId: string) {
+    try {
+      for (let attempt = 0; attempt < 10; attempt += 1) {
+        const { environmentId } = await bb.sdk.threads.get({ threadId });
+        if (environmentId !== null) {
+          const environment = await bb.sdk.environments.get({ environmentId });
+          if (!environment.name) await bb.sdk.environments.update({ environmentId, name: "Agents" });
+          return;
+        }
+        await new Promise((resolve) => setTimeout(resolve, 1000));
+      }
+    } catch (error) {
+      bb.log.debug(`naming the agents workspace skipped: ${messageOf(error)}`);
+    }
+  }
+
   async function memoryFiles(projectId: string, config: z.infer<typeof configSchema>) {
     try {
       const hostId = await localHostId();
@@ -153,6 +170,7 @@ export default async function plugin(bb: BbPluginApi) {
         ...(role.reasoningLevel === "" ? {} : { reasoningLevel: role.reasoningLevel }),
         ...(role.permissionMode === "" ? {} : { permissionMode: role.permissionMode }),
       });
+      if (request.target.type === "main-checkout") void nameAgentsWorkspace(thread.id);
       return { threadId: thread.id, environmentId: thread.environmentId };
     },
     async send(threadId, text, senderThreadId) {
@@ -551,4 +569,4 @@ export default async function plugin(bb: BbPluginApi) {
 }
 
 /** Skills this plugin ships; `configure` may only select names from here. */
-const SKILLS = new Set(["factory", "factory-orchestrator", "factory-chief-of-staff", "factory-harness-improver", "factory-watch"]);
+const SKILLS = new Set(["factory", "factory-orchestrator", "factory-chief-of-staff", "factory-deploy", "factory-harness-improver", "factory-watch"]);
