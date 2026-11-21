@@ -11,6 +11,18 @@ What Gideon has decided about the factory, newest first. Check here before re-op
 
 ---
 
+## 21 November 2026 (pages, titles)
+
+**The Factory is three pages: Inbox, Swimlanes, and Factory settings** (agents first, every other setting below). Each ticket card has an arrow to its tracker ticket. (Founder)
+
+**The inbox is grouped by what it asks of him**, in this order: Decisions, Try it, To do, Needs attention. One readable column; long context starts folded. (Founder asked for a cleaner, more readable inbox; Agent chose the design)
+
+**A thread is titled with its role alone, and the workspace carries the ticket.** "They might change ticket numbers they work on." (Founder)
+
+**Feedback is not Watch's job for now.** Feedback is sparse; he asks the planner to look at it directly. No trigger and no timer. (Founder)
+
+**An owner thread that predates owners is told it is the owner the first time he writes to it.** (Agent, after JUS-1011's owner answered in chat and opened a new workspace for a follow-up)
+
 ## 21 November 2026 (follow-up tickets, Watch)
 
 **Follow-up work on a shipped ticket continues in the same workspace under its new ticket.** The owner moves the workspace and its own thread to the new ticket; the shipped ticket leaves the board. No new workspace for a continuation. (Founder)

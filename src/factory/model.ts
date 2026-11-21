@@ -62,6 +62,8 @@ export const configSchema = z.object({
   /** Tickets being worked at once, across all lanes. */
   maxActiveItems: z.number().int().min(1).max(64),
   agents: z.record(z.string(), standingAgentSchema),
+  /** Where a ticket is tracked, with {key} for its number. Empty means no link. */
+  ticketUrl: z.string().max(300).default(""),
 });
 export type Config = z.infer<typeof configSchema>;
 
@@ -121,6 +123,8 @@ export const itemSchema = z.object({
   riders: z.array(z.object({ key: z.string(), title: z.string(), brief: z.string() })).default([]),
   /** Thread that queued this ticket; review findings with no author stage go here. */
   originThreadId: z.string().nullable(),
+  /** The owner's thread has been told it is the owner. False for threads that predate owners. */
+  ownerBriefed: z.boolean().default(false),
   nudged: z.boolean(),
   createdAt: z.number(),
   updatedAt: z.number(),

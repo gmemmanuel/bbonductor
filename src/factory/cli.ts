@@ -17,6 +17,7 @@ export const CLI_COMMANDS = [
   { name: "ask", summary: "Ask the founder (same as factory_ask_founder)", usage: "bb factory ask <question…> [--context <text>] [--option <text>]… [--recommend <text>] [--todo|--testing] [--account <text>] [--step <text>]…" },
   { name: "ask-planner", summary: "Send something back to this ticket's issue owner (same as factory_ask_planner)", usage: "bb factory ask-planner <handoff…>" },
   { name: "follow-up", summary: "Issue owner: continue a shipped ticket under a new one, in the same workspace (same as factory_follow_up)", usage: "bb factory follow-up <key> <title…> --handoff <text>" },
+  { name: "retitle", summary: "Title every ticket thread with its role and name each workspace for its ticket", usage: "bb factory retitle [--project <id>]" },
   { name: "note", summary: "Issue owner: replace the ticket note (same as factory_ticket_note)", usage: "bb factory note <text…>" },
   { name: "message", summary: "Message an agent or a ticket's thread", usage: "bb factory message <agent|KEY|KEY:stage> <text…>" },
   { name: "inbox", summary: "List open founder decisions", usage: "bb factory inbox [--json]" },
@@ -232,6 +233,10 @@ export async function runCli(
         if (key === undefined || title.length === 0 || handoff === undefined) break;
         const item = await engine.followUp(thread(), { key, title: title.join(" "), handoff });
         return ok(item, `${item.key} has taken over the workspace and its builder has started.`);
+      }
+      case "retitle": {
+        const report = await engine.retitle(projectId());
+        return ok(report, report.length === 0 ? "Nothing to retitle." : report.join("\n"));
       }
       case "note": {
         if (rest.length === 0) break;

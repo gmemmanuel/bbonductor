@@ -56,6 +56,10 @@ export interface Effects {
   unpin(threadId: string): void;
   /** Give a workspace a new name in bb's sidebar. Best effort. */
   renameWorkspace(environmentId: string, name: string): void;
+  /** Name the workspace a thread runs in, once bb has assigned it one. Best effort. */
+  nameWorkspaceOf(threadId: string, name: string): void;
+  /** Retitle a thread. Best effort. */
+  titleThread(threadId: string, title: string): void;
   /** True while bb still shows an unanswered question or approval on the thread. */
   hasPendingInteraction(threadId: string): Promise<boolean>;
   /** Best-effort push notification. Must not throw. */
@@ -469,8 +473,9 @@ export class FactoryEngine {
           workspace === null
             ? { type: "new-worktree" }
             : { type: "reuse", environmentId: workspace },
-        // bb names a workspace after its first thread, so that one is the ticket.
-        title: Object.keys(item.threads).length === 0 ? item.key : `${item.key} · ${stage.label}`,
+        // A thread is titled with its role alone: the ticket is the workspace's
+        // name, and a thread can go on to work on another ticket.
+        title: threadTitle(stage),
         prompt,
         role,
         binding: { kind: "stage", itemId: item.id, stage: stageId },
@@ -483,6 +488,7 @@ export class FactoryEngine {
         agentId: null,
         projectId: item.projectId,
       });
+      if (workspace === null) this.effects.nameWorkspaceOf(threadId, item.key);
       return this.store.saveItem({
         ...item,
         status: "running",
@@ -490,6 +496,7 @@ export class FactoryEngine {
         working: true,
         environmentId: workspace ?? environmentId,
         threads: { ...item.threads, [stageId]: threadId },
+        ownerBriefed: item.ownerBriefed || (stage.owner && stage.review),
       });
     } catch (error) {
       return this.fail(item, `Could not start ${stage.label}: ${messageOf(error)}`, null);
@@ -760,7 +767,7 @@ export class FactoryEngine {
       const { threadId } = await this.effects.spawn({
         projectId: item.projectId,
         target: workspace === null ? { type: "new-worktree" } : { type: "reuse", environmentId: workspace },
-        title: `${item.key} · Issue owner`,
+        title: OWNER_TITLE,
         prompt: [
           `You are the issue owner for ${item.key}: ${item.title}. Its plan was reviewed before it reached the factory, so there is no review for you to do. Read the plan and where the work stands, so you can answer for this ticket. What needs you arrives as the next message.`,
           ridersText(item),
@@ -774,6 +781,8 @@ export class FactoryEngine {
       });
       this.store.bindThread({ threadId, itemId: item.id, stage: null, agentId: null, projectId: item.projectId });
       item.ownerThreadId = threadId;
+      item.ownerBriefed = true;
+      if (workspace === null) this.effects.nameWorkspaceOf(threadId, item.key);
       this.store.saveItem(item);
       return threadId;
     } catch (error) {
@@ -850,7 +859,7 @@ export class FactoryEngine {
       this.store.bindThread({ threadId, itemId: created.id, stage: null, agentId: null, projectId: shipped.projectId });
       if (workspace !== null) this.effects.renameWorkspace(workspace, key);
       const started = await this.runStage(
-        { ...created, position: shipped.position, environmentId: workspace, ownerThreadId: threadId, ownerNote: shipped.ownerNote },
+        { ...created, position: shipped.position, environmentId: workspace, ownerThreadId: threadId, ownerNote: shipped.ownerNote, ownerBriefed: shipped.ownerBriefed },
         config,
       );
       this.effects.changed();
@@ -960,6 +969,7 @@ export class FactoryEngine {
       founderCheck: null,
       consult: null,
       ownerThreadId: null,
+      ownerBriefed: false,
       ownerNote: "",
       riders: [],
       originThreadId: extra.originThreadId ?? null,
@@ -1660,6 +1670,52 @@ export class FactoryEngine {
     return { author, authorStage: stages[author] ?? "" };
   }
 
+  /**
+   * An owner whose thread started before owners existed has never been told
+   * what it is: it answers the founder in chat and never uses his inbox. The
+   * first time he writes to such a thread, it is given the owner's charter.
+   */
+  unbriefedOwner(threadId: string): boolean {
+    const item = this.ownedBy(threadId);
+    return item !== null && !item.ownerBriefed && item.status !== "archived" && item.status !== "cancelled";
+  }
+
+  briefOwner(threadId: string): Promise<void> {
+    return this.exclusive(async () => {
+      const item = this.ownedBy(threadId);
+      if (item === null || item.ownerBriefed) return;
+      this.store.saveItem({ ...item, ownerBriefed: true });
+      await this.effects.send(
+        threadId,
+        `A note from the factory, to go with what the founder just wrote: this thread is the issue owner for ${item.key}, and that changes how you answer him.\n\n${ownerProtocol(item)}\n\nIf his message means follow-up work under a ticket of its own, use factory_follow_up: it keeps this workspace and this thread, and renames the workspace. Do not queue a new ticket or start a workspace for a continuation.`,
+      );
+    });
+  }
+
+  /**
+   * Bring threads and workspaces started under older naming in line: each
+   * thread titled with its role, each workspace named for its ticket.
+   */
+  retitle(projectId: string): Promise<string[]> {
+    return this.exclusive(async () => {
+      const config = this.store.getConfig(projectId);
+      const report: string[] = [];
+      for (const item of this.store.listItems(projectId)) {
+        if (item.status === "archived" || item.status === "cancelled") continue;
+        const owner = this.ownerThread(item);
+        for (const [stageId, threadId] of Object.entries(item.threads)) {
+          const stage = config.stages[stageId];
+          if (stage !== undefined) this.effects.titleThread(threadId, threadTitle(stage));
+        }
+        if (item.ownerThreadId !== null) this.effects.titleThread(item.ownerThreadId, OWNER_TITLE);
+        const first = owner ?? Object.values(item.threads)[0];
+        if (first !== undefined) this.effects.nameWorkspaceOf(first, item.key);
+        if (first !== undefined) report.push(`${item.key}: ${Object.keys(item.threads).length + (item.ownerThreadId === null ? 0 : 1)} threads`);
+      }
+      return report;
+    });
+  }
+
   /** Whether this thread has something open in the inbox that a reply from the founder would answer. */
   awaitingFounder(threadId: string): boolean {
     return this.store.listInbox({ status: "open", threadId }).some((entry) => REPLIABLE.has(entry.kind));
@@ -1737,6 +1793,13 @@ function currentStageId(store: FactoryStore, item: Item): string | undefined {
 
 function messageOf(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+const OWNER_TITLE = "Issue owner";
+
+/** What a stage's thread is called: its role, never the ticket. */
+function threadTitle(stage: { label: string; owner: boolean; review: boolean }): string {
+  return stage.owner && stage.review ? OWNER_TITLE : stage.label;
 }
 
 function withNote(item: Item, text: string): string {

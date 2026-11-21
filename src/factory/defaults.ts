@@ -177,6 +177,7 @@ export const DEFAULT_CONFIG: Config = {
     "small-bug": ["fix"],
   },
   defaultPipeline: "planned",
+  ticketUrl: "",
   maxActiveItems: 8,
   agents: {
     orchestrator: {

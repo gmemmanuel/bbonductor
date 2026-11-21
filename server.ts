@@ -107,19 +107,24 @@ export default async function plugin(bb: BbPluginApi) {
   }
 
   /** Standing agents share the main checkout; give that workspace its own name. */
-  async function nameAgentsWorkspace(threadId: string) {
+  /**
+   * Name the workspace a thread runs in. bb assigns a new worktree a moment
+   * after its first thread is created, so this waits for it. Standing agents
+   * share the main checkout, which keeps a name someone already gave it.
+   */
+  async function nameWorkspace(threadId: string, name: string, overwrite: boolean) {
     try {
       for (let attempt = 0; attempt < 10; attempt += 1) {
         const { environmentId } = await bb.sdk.threads.get({ threadId });
         if (environmentId !== null) {
-          const environment = await bb.sdk.environments.get({ environmentId });
-          if (!environment.name) await bb.sdk.environments.update({ environmentId, name: "Agents" });
+          const environment = overwrite ? null : await bb.sdk.environments.get({ environmentId });
+          if (!environment?.name) await bb.sdk.environments.update({ environmentId, name });
           return;
         }
         await new Promise((resolve) => setTimeout(resolve, 1000));
       }
     } catch (error) {
-      bb.log.debug(`naming the agents workspace skipped: ${messageOf(error)}`);
+      bb.log.debug(`naming a workspace skipped: ${messageOf(error)}`);
     }
   }
 
@@ -171,7 +176,7 @@ export default async function plugin(bb: BbPluginApi) {
         ...(role.reasoningLevel === "" ? {} : { reasoningLevel: role.reasoningLevel }),
         ...(role.permissionMode === "" ? {} : { permissionMode: role.permissionMode }),
       });
-      if (request.target.type === "main-checkout") void nameAgentsWorkspace(thread.id);
+      if (request.target.type === "main-checkout") void nameWorkspace(thread.id, "Agents", false);
       return { threadId: thread.id, environmentId: thread.environmentId };
     },
     async send(threadId, text, senderThreadId, attachments = []) {
@@ -199,6 +204,14 @@ export default async function plugin(bb: BbPluginApi) {
       void bb.sdk.environments
         .update({ environmentId, name })
         .catch((error: unknown) => bb.log.debug(`workspace rename skipped: ${messageOf(error)}`));
+    },
+    nameWorkspaceOf(threadId, name) {
+      void nameWorkspace(threadId, name, true);
+    },
+    titleThread(threadId, title) {
+      void bb.sdk.threads
+        .update({ threadId, title })
+        .catch((error: unknown) => bb.log.debug(`retitle skipped: ${messageOf(error)}`));
     },
     unpin(threadId) {
       void bb.sdk.threads
@@ -262,14 +275,17 @@ export default async function plugin(bb: BbPluginApi) {
     guard("active", async () => {
       await engine.onActive(thread.id);
       await engine.reconcileInteractions();
-      // A turn the founder started himself answers what the thread asked him.
-      if (!engine.awaitingFounder(thread.id)) return;
+      // A turn the founder started himself answers what the thread asked him,
+      // and is the moment to brief an owner that predates owners.
+      const unbriefed = engine.unbriefedOwner(thread.id);
+      if (!unbriefed && !engine.awaitingFounder(thread.id)) return;
       const [latest] = await bb.sdk.threads.events.list({ threadId: thread.id, types: ["client/turn/requested"], order: "desc", limit: "1" });
       // A thread's opening prompt is recorded as the user's even when a plugin
       // spawned it, so "no plugin behind it" is part of the test.
       const request = latest as { createdAt?: number; data?: { initiator?: string; senderThreadId?: string | null; originPluginId?: string | null } } | undefined;
       if (request?.data?.initiator !== "user" || request.data.senderThreadId != null || request.data.originPluginId != null) return;
       await engine.onFounderMessage(thread.id, request.createdAt);
+      if (unbriefed) await engine.briefOwner(thread.id);
     });
   });
   bb.events.on("thread.failed", ({ thread, error }) => {
