@@ -617,7 +617,7 @@ describe("founder inbox", () => {
   it("lets a standing agent ask the founder directly", async () => {
     const planner = await t.rpc<{ threadId: string }>("startAgent", { projectId: PROJECT, agentId: "orchestrator" });
     await t.tool("factory_ask_founder", planner.threadId, { kind: "decision", question: "Create a ticket for the new error class?" });
-    expect((await t.state()).inbox[0]).toMatchObject({ kind: "question", from: "Planner / strategist" });
+    expect((await t.state()).inbox[0]).toMatchObject({ kind: "question", from: "CTO" });
   });
 
   it("does not remind a thread that is waiting on its own background work", async () => {
@@ -756,13 +756,13 @@ describe("standing agents and messaging", () => {
     expect(malformed.status).toBe(400);
   });
 
-  it("starts the orchestrator when Watch hands it findings before it was ever started", async () => {
+  it("starts the CTO when the Observer hands it findings before it was ever started", async () => {
     await t.harness.behavior.runCli(["prompt", "watch", "Daily check."], { projectId: PROJECT });
     const result = await t.tool("factory_message", "th_1", { to: "orchestrator", message: "Two new error classes." });
-    expect(result).toContain("Delivered to Planner / strategist");
-    expect(t.spawned.map((thread) => thread.title)).toEqual(["Watch", "Planner / strategist"]);
+    expect(result).toContain("Delivered to CTO");
+    expect(t.spawned.map((thread) => thread.title)).toEqual(["Observer", "CTO"]);
     expect(t.sent.at(-1)).toMatchObject({ threadId: "th_2", senderThreadId: "th_1" });
-    expect(t.sent.at(-1)!.text).toContain("Message from Watch");
+    expect(t.sent.at(-1)!.text).toContain("Message from Observer");
   });
 
   it("offers a deployer as a standing agent with its own model and charter", async () => {
@@ -1134,7 +1134,7 @@ describe("falling back when a model's limit runs out", () => {
     });
     await t.rpc("startAgent", { projectId: PROJECT, agentId: "orchestrator" });
     await limit("th_1");
-    expect(t.spawned.at(-1)).toMatchObject({ id: "th_2", title: "Planner / strategist", providerId: "codex", model: "gpt-sol", pinned: true });
+    expect(t.spawned.at(-1)).toMatchObject({ id: "th_2", title: "CTO", providerId: "codex", model: "gpt-sol", pinned: true });
     expect(t.spawned.at(-1)!.prompt).toContain("bb thread log th_1");
     expect((await t.state()).agents.find((agent) => agent.agentId === "orchestrator")!.threadId).toBe("th_2");
   });
@@ -1178,6 +1178,21 @@ describe("configuration and CLI", () => {
     expect(upgraded.roles["plan-review"]).toMatchObject({ label: "Issue owner", model: "fable" });
     expect(upgraded.stages["plan-review"]!.owner).toBe(true);
     expect(upgraded.stages.build!.owner).toBe(false);
+  });
+
+  it("renames the planner to CTO and Watch to Observer in a saved configuration, and leaves a name the founder chose", async () => {
+    const { config } = await t.state();
+    const old = {
+      ...config,
+      roles: { ...config.roles, orchestrator: { ...config.roles.orchestrator, label: "Planner / strategist" }, watch: { ...config.roles.watch, label: "Night watch" } },
+      agents: { ...config.agents, orchestrator: { ...config.agents.orchestrator, label: "Planner / strategist" }, watch: { ...config.agents.watch, label: "Watch" } },
+    };
+    await t.rpc("saveConfig", { projectId: PROJECT, config: old });
+    const upgraded = (await t.state()).config;
+    expect(upgraded.roles.orchestrator!.label).toBe("CTO");
+    expect(upgraded.agents.orchestrator!.label).toBe("CTO");
+    expect(upgraded.agents.watch!.label).toBe("Observer");
+    expect(upgraded.roles.watch!.label).toBe("Night watch");
   });
 
   it("rejects a configuration whose stage names an undefined role", async () => {

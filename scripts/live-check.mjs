@@ -271,9 +271,9 @@ async function main() {
 
     // --- standing agent
     bb(["factory", "agent", "start", "orchestrator", "--project", project]);
-    const orchestrator = await until(() => threads().find((t) => t.title === "Planner / strategist"));
+    const orchestrator = await until(() => threads().find((t) => t.title === "CTO"));
     check("orchestrator starts as a pinned thread", orchestrator?.pinnedAt != null);
-    const mainEnv = await until(() => threads().find((t) => t.title === "Planner / strategist")?.environmentId);
+    const mainEnv = await until(() => threads().find((t) => t.title === "CTO")?.environmentId);
     const environments = bb(["environment", "list", "--project", project]);
     check(
       "orchestrator runs in the main checkout, not a worktree",

@@ -11,6 +11,20 @@ What Gideon has decided about the factory, newest first. Check here before re-op
 
 ---
 
+## 21 November 2026 (CTO and Observer)
+
+**The planner is the CTO and Watch is the Observer.** (Founder)
+
+**The CTO files the ticket and writes the plan itself, as one step, without asking him.** "Those aren't separate gates for me. I don't need it to confirm that with me." A ticket reaches the swimlanes with its plan written; planning never waits until the ticket is picked up. This replaces the 16 November rule that he approves every new ticket, and the planned review of it on 30 November. He still decides mockups, product behaviour and hand changes to a real user's data. (Founder)
+
+**The Observer's first job is a close daily read of what each active tester did**, the review his Fable planner did by hand each morning. Error triage, shipped-change watches and trace patterns come after. (Founder)
+
+**The Observer hands the CTO everything it found, including things seen once.** The CTO decides what is worth work. (Founder: "it should have sent more for the CTO to decide what to do with")
+
+**The CTO and the Observer each run a weekly retro on their own work**, and send skill or instruction problems to the harness improver, which over time takes over keeping the factory and the harness running smoothly. (Founder)
+
+**A real follow-on is a new ticket with the same owner.** Small corrections reopen the same ticket with a plan addendum. (Founder)
+
 ## 21 November 2026 (pages, titles)
 
 **The Factory is three pages: Inbox, Swimlanes, and Factory settings** (agents first, every other setting below). Each ticket card has an arrow to its tracker ticket. (Founder)

@@ -36,6 +36,15 @@ Run it when asked (a scheduled prompt can ask weekly). Work from evidence:
 6. **Update your memory file**: proposals made, their status, and what to
    measure next time.
 
+## What the other agents send you
+
+The CTO and the Observer each run a weekly retro on their own work. When
+one of them finds that a project skill or instruction is what tripped it up,
+it messages you. Treat those as evidence for your own retro: they are the
+agents closest to the problem. Over time you are the one who keeps the
+factory, its skills and the project's harness working smoothly, so that the
+founder does not have to notice where it grinds.
+
 ## Making changes
 
 - Changes to the product repository's skills, instructions, or checks go

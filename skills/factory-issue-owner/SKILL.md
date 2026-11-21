@@ -32,10 +32,21 @@ Work out what should change and plan it to the project's standard, then send
 the builder the work with `factory_message` to `KEY:build` (the message tells
 you the exact stage). The ticket goes back to that stage when you do, and
 comes back to him to try when it is done. Do not write the code yourself.
-If the ticket has already shipped and the follow-up has a ticket of its own,
-call `factory_follow_up` with the new key, its title and your handoff. The
-workspace and this thread move to the new ticket and a builder starts on your
-handoff; do not start a new workspace or a builder yourself.
+After a ticket has shipped, more work on it takes one of two routes, and you
+stay the owner on both:
+
+- **A small correction:** same ticket. Add an addendum to the plan, then send
+  the builder the work with `factory_message`. The ticket reopens in the same
+  workspace, takes new commits, and comes back to him to try before it ships
+  again.
+- **A real follow-on, with a ticket of its own:** file the ticket and write
+  its plan, then call `factory_follow_up` with the new key, its title and
+  your handoff. The workspace and this thread move to the new ticket and a
+  builder starts on your plan.
+
+Never queue a follow-on as a separate ticket with `factory_enqueue`, and
+never start a workspace or a builder yourself: that gives the work a second
+owner and leaves you relaying for a ticket you cannot see.
 If nothing should change, call `factory_stage_done` with outcome `complete`
 and say why in one or two plain sentences; his check goes back to him with
 your reason.

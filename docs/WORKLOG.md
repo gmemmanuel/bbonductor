@@ -15,7 +15,7 @@ In rough order.
 
 1. **Founder picks models per role, starts the orchestrator, and runs one small Justus ticket by hand.** Then resume the three paused automations.
 3. **Feedback review is with the planner, on request** (founder, 21 November). No trigger; a webhook through bb is impossible and he declined a timer and a Slack connection.
-4. **Revisit ticket approval around 30 November 2026.** The founder approves every new ticket for the first week or two; ask then whether the orchestrator may create them on its own.
+4. **Justus needs a skill for the daily tester review, and its rules need to match the founder's 21 November decisions.** The Observer's daily prompt carries the method for now. Justus `AGENTS.md` still says Linear tickets need his confirmation every time and that review findings are clustered, never per athlete; `trace-review` reports only classes above an evidence floor. Handed to the CTO as its first self-planned ticket.
 5. **Teach the Justus instructions about the factory.** `AGENTS.md` there says the founder launches reviews and ship; under the factory the factory does. Its `review-plan` skill already says the reviewer stays the ticket's planner; add that the founder's feedback comes to it too, and that small bugs ride with a planned ticket (the `SMALL_BUG` fast path and its resolver assume a branch per bug).
 6. **Builder and shipper as sub-agents of the issue owner**, possibly on other providers, if threads stop being the useful shape. Held by the founder.
 6. **Show the ticket note on the page**, and let a small bug be moved to another ticket.
@@ -26,6 +26,15 @@ In rough order.
 11. **Install bb's Conductor layout when it is released.**
 
 ## Log
+
+### 21 November 2026 (third session): CTO, Observer, the daily tester review
+
+- **Renamed** the planner to CTO and Watch to Observer (labels and thread titles; ids unchanged). The inbox has its own sidebar icon.
+- **CTO charter:** files and plans every ticket itself, no confirmation; never queues a ticket for something else to plan. **Observer charter:** daily read of each active tester first; hands over everything. Both run weekly retros. **Owner charter:** small correction on the same ticket, real follow-on via `factory_follow_up`.
+- **Looked into the morning's run.** The Observer sent five findings, not one; the CTO ruled on each and one became JUS-1021. They are hard to see because agent-to-agent messages collapse. JUS-1021 got a planner in its workspace because the CTO queued it on the `full` pipeline.
+- **Read the founder's Fable planner session** (Conductor, 9 to 19 November) to learn the morning review: per athlete, everything since the last look, judged for bugs and weak coaching, with tickets proposed. `trace-review` does not do this.
+- **In his bb:** daily prompt now leads with the tester review; weekly retros added for the CTO and the Observer.
+- **Checked:** 73 behaviour tests, 55 live checks. **Not checked:** the new charters on a real run; tomorrow's 5:00 run is the first.
 
 ### 21 November 2026 (second session): pages, titles, Conductor look
 
