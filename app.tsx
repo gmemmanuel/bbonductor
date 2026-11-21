@@ -407,7 +407,63 @@ const KIND_LABEL: Record<InboxEntry["kind"], string> = {
   todo: "To do",
 };
 
-function InboxCard({ entry, ticket, title, rpc, run }: { entry: InboxEntry; ticket: string | null; title: string | null; rpc: Rpc; run: (work: Promise<unknown>) => void }) {
+/** The inbox in the order he should read it: what only he can decide, what to try, what to do, what broke. */
+const GROUPS: { id: string; title: string; kinds: InboxEntry["kind"][]; accent: string }[] = [
+  { id: "decide", title: "Decisions", kinds: ["question", "interaction"], accent: "border-l-sky-500" },
+  { id: "try", title: "Try it", kinds: ["check", "test"], accent: "border-l-emerald-500" },
+  { id: "do", title: "To do", kinds: ["todo"], accent: "border-l-amber-500" },
+  { id: "fix", title: "Needs attention", kinds: ["stalled", "failed", "blocked"], accent: "border-l-red-500" },
+];
+
+function ago(time: number): string {
+  const minutes = Math.max(0, Math.round((Date.now() - time) / 60000));
+  if (minutes < 1) return "just now";
+  if (minutes < 60) return `${minutes}m ago`;
+  if (minutes < 60 * 24) return `${Math.round(minutes / 60)}h ago`;
+  return `${Math.round(minutes / (60 * 24))}d ago`;
+}
+
+function ticketLink(config: Config, key: string): string | null {
+  return config.ticketUrl === "" ? null : config.ticketUrl.replace("{key}", encodeURIComponent(key));
+}
+
+/** A small arrow that opens the ticket where it is tracked. */
+function TicketLink({ url, ticket }: { url: string | null; ticket: string }) {
+  const navigate = useBbNavigate();
+  if (url === null) return null;
+  return (
+    <button
+      type="button"
+      aria-label={`Open ${ticket} in the tracker`}
+      title={`Open ${ticket} in the tracker`}
+      data-testid="ticket-link"
+      className="shrink-0 rounded px-1 text-sm leading-none text-muted-foreground hover:bg-secondary hover:text-foreground"
+      onClick={() => navigate.openUrl(url)}
+    >
+      ↗
+    </button>
+  );
+}
+
+/** Long context starts folded, so every card opens at a glance and none buries the next. */
+function Context({ text }: { text: string }) {
+  const long = text.length > 700 || text.split("\n").length > 14;
+  const [open, setOpen] = useState(false);
+  if (!long) return <Markdown content={text} className="text-sm" />;
+  return (
+    <div>
+      <div className={cn("relative", open ? "" : "max-h-44 overflow-hidden")}>
+        <Markdown content={text} className="text-sm" />
+        {open ? null : <div className="pointer-events-none absolute inset-x-0 bottom-0 h-12 bg-gradient-to-t from-card to-transparent" />}
+      </div>
+      <button type="button" className="mt-1 text-xs font-medium text-muted-foreground underline hover:text-foreground" onClick={() => setOpen(!open)}>
+        {open ? "Show less" : "Show all"}
+      </button>
+    </div>
+  );
+}
+
+function InboxCard({ entry, ticket, title, link, accent, rpc, run }: { entry: InboxEntry; ticket: string | null; title: string | null; link: string | null; accent: string; rpc: Rpc; run: (work: Promise<unknown>) => void }) {
   const navigate = useBbNavigate();
   const sdk = useSdk();
   const running = useRunsBeside(entry.threadId);
@@ -471,23 +527,18 @@ function InboxCard({ entry, ticket, title, rpc, run }: { entry: InboxEntry; tick
   };
   const urgent = entry.kind === "failed" || entry.kind === "stalled";
   return (
-    <li className="space-y-2 rounded-lg border border-border bg-card p-4" data-testid="inbox-entry">
-      <div className="flex flex-wrap items-center gap-2 text-xs">
-        {ticket === null ? null : <span className="font-mono text-sm font-medium">{ticket}</span>}
-        <span
-          className={cn(
-            "rounded px-1.5 py-0.5 font-medium",
-            urgent ? "bg-destructive/15 text-destructive" : "bg-secondary text-secondary-foreground",
-          )}
-        >
-          {KIND_LABEL[entry.kind]}
+    <li className={cn("space-y-3 rounded-lg border border-l-[3px] border-border bg-card px-4 py-3.5", accent)} data-testid="inbox-entry">
+      <div className="flex items-center gap-2 text-xs text-muted-foreground">
+        {ticket === null ? <span className="font-medium text-foreground">{entry.from}</span> : <span className="font-mono text-sm font-medium text-foreground">{ticket}</span>}
+        {title === null ? null : <span className="min-w-0 flex-1 truncate">{title}</span>}
+        {title === null ? <span className="flex-1" /> : null}
+        <span className="shrink-0" title={new Date(entry.createdAt).toLocaleString()}>
+          {KIND_LABEL[entry.kind]} · {ago(entry.createdAt)}
         </span>
-        <span className="text-muted-foreground">{entry.kind === "test" ? "Shipped" : ticket === null ? entry.from : entry.from.replace(` · ${ticket}`, "")}</span>
-        <span className="text-muted-foreground">{new Date(entry.createdAt).toLocaleString()}</span>
+        {ticket === null ? null : <TicketLink url={link} ticket={ticket} />}
       </div>
-      {title === null ? null : <p className="text-xs text-muted-foreground">{title}</p>}
-      <p className="text-base font-semibold">{entry.question}</p>
-      {entry.context === "" ? null : <Markdown content={entry.context} className="text-sm" />}
+      <p className="text-base font-semibold leading-snug">{entry.question}</p>
+      {entry.context === "" ? null : <Context text={entry.context} />}
       {entry.options.length === 0 ? null : (
         <div className="flex flex-col items-stretch gap-1.5 sm:items-start">
           {entry.options.map((option, index) => (
@@ -504,9 +555,11 @@ function InboxCard({ entry, ticket, title, rpc, run }: { entry: InboxEntry; tick
         </div>
       )}
       {entry.recommendation === "" ? null : (
-        <Markdown content={`**Recommendation:** ${entry.recommendation}`} className="text-sm" />
+        <div className="rounded-md bg-secondary/50 px-3 py-2">
+          <Markdown content={`**Recommendation:** ${entry.recommendation}`} className="text-sm" />
+        </div>
       )}
-      <form onSubmit={send} onDrop={onDrop} onDragOver={(event) => event.preventDefault()} className="flex flex-wrap items-center gap-2">
+      <form onSubmit={send} onDrop={onDrop} onDragOver={(event) => event.preventDefault()} className="flex flex-wrap items-center gap-2 border-t border-border pt-3">
         {entry.kind === "interaction" ? null : (
           <>
             <textarea
@@ -553,7 +606,7 @@ function InboxCard({ entry, ticket, title, rpc, run }: { entry: InboxEntry; tick
             <Button type="submit" size="sm" variant={entry.kind === "check" ? "outline" : "default"} className="h-10 flex-1 sm:h-8 sm:flex-none" disabled={!ready}>
               {entry.kind === "check" ? "Send back" : "Send"}
             </Button>
-            <Button type="button" size="sm" variant="outline" className="h-10 flex-1 sm:h-8 sm:flex-none" onClick={() => picker.current?.click()}>
+            <Button type="button" size="sm" variant="ghost" className="h-10 flex-1 text-muted-foreground sm:h-8 sm:flex-none" onClick={() => picker.current?.click()}>
               Attach
             </Button>
           </>
@@ -568,6 +621,7 @@ function InboxCard({ entry, ticket, title, rpc, run }: { entry: InboxEntry; tick
             Retry
           </Button>
         ) : null}
+        <span className="hidden flex-1 sm:block" />
         {entry.threadId !== "" && (entry.kind === "todo" || entry.kind === "test" || entry.kind === "check") ? (
           <Button
             type="button"
@@ -581,11 +635,11 @@ function InboxCard({ entry, ticket, title, rpc, run }: { entry: InboxEntry; tick
           </Button>
         ) : null}
         {entry.threadId === "" ? null : (
-          <Button type="button" size="sm" variant="outline" data-testid="inbox-open-thread" onClick={openThread}>
+          <Button type="button" size="sm" variant="ghost" className="text-muted-foreground" data-testid="inbox-open-thread" onClick={openThread}>
             Open thread
           </Button>
         )}
-        <Button type="button" size="sm" variant="ghost" onClick={() => run(rpc.call("dismiss", { entryId: entry.id }))}>
+        <Button type="button" size="sm" variant="ghost" className="text-muted-foreground" onClick={() => run(rpc.call("dismiss", { entryId: entry.id }))}>
           Dismiss
         </Button>
       </form>
@@ -687,6 +741,7 @@ function Ticket({ item, config, rpc, run, canMoveUp = false, canMoveDown = false
             Tier {item.tier}
           </span>
         )}
+        <TicketLink url={ticketLink(config, item.key)} ticket={item.key} />
       </div>
       <p className="text-muted-foreground">{item.title}</p>
       {item.riders.length === 0 ? null : (
@@ -961,77 +1016,153 @@ function Agents({ state, rpc, run }: { state: FactoryState; rpc: Rpc; run: (work
 
 // --------------------------------------------------------------------- page
 
-function FactoryPage() {
-  const { rpc, state, error, run, selectProject } = useFactory();
-  const inbox = useMemo(() => state?.inbox ?? [], [state]);
-  const [chime, setChime] = useState(chimeOn);
-  if (state === null) {
-    return <div className="p-5 text-sm text-muted-foreground">{error ?? "Loading the factory…"}</div>;
-  }
+/** The frame every Factory page shares: a title, the page's own controls, and what went wrong if anything did. */
+function Page({ title, width, error, aside, children }: { title: string; width: string; error: string | null; aside?: ReactNode; children: ReactNode }) {
   return (
     <div className="h-full min-h-0 flex-1 overflow-y-auto">
-      <div className="mx-auto box-border w-full max-w-5xl space-y-6 px-4 pb-8 pt-3 md:px-5 md:pt-4">
-        <div className="flex flex-wrap items-center gap-2">
-          <label className="text-sm text-muted-foreground" htmlFor="factory-project">
-            Project
-          </label>
-          <select id="factory-project" className={selectClass} value={state.projectId ?? ""} onChange={(e) => selectProject(e.target.value)}>
-            {state.projects.map((project) => (
-              <option key={project.id} value={project.id}>
-                {project.name}
-              </option>
-            ))}
-          </select>
+      <div className={cn("mx-auto box-border w-full space-y-5 px-4 pb-10 pt-4 md:px-6 md:pt-6", width)}>
+        <div className="flex flex-wrap items-center gap-3">
+          <h1 className="flex-1 text-xl font-semibold tracking-tight">{title}</h1>
+          {aside}
         </div>
         {error === null ? null : (
           <p role="alert" className="text-sm text-destructive">
             {error}
           </p>
         )}
-        <Section title={`Inbox${inbox.length === 0 ? "" : ` (${inbox.length})`}`}>
-          <div className="flex items-center gap-2 text-xs text-muted-foreground">
-            <label className="flex items-center gap-1.5">
-              <input
-                type="checkbox"
-                checked={chime}
-                onChange={(event) => {
-                  localStorage.setItem(CHIME_KEY, event.target.checked ? "on" : "off");
-                  setChime(event.target.checked);
-                }}
-              />
-              Chime when something arrives
-            </label>
-            <button type="button" className="underline" onClick={playChime}>
-              Hear it
-            </button>
-          </div>
-          {inbox.length === 0 ? (
-            <Empty>Nothing needs you.</Empty>
-          ) : (
-            <ul className="space-y-2">
-              {inbox.map((entry) => (
-                <InboxCard key={entry.id} entry={entry} ticket={state.items.find((item) => item.id === entry.itemId)?.key ?? null} title={state.items.find((item) => item.id === entry.itemId)?.title ?? null} rpc={rpc} run={run} />
-              ))}
-            </ul>
-          )}
-        </Section>
-        {state.projectId === null ? (
-          <Empty>Add a project to bb to start a factory.</Empty>
-        ) : (
-          <>
-            <Section title="Swimlanes">
-              <Swimlanes state={state} rpc={rpc} run={run} />
-            </Section>
-            <Section title="Standing agents">
-              <Agents state={state} rpc={rpc} run={run} />
-            </Section>
-            <Section title="Who plays each role">
-              <Roles state={state} rpc={rpc} run={run} />
-            </Section>
-          </>
-        )}
+        {children}
       </div>
     </div>
+  );
+}
+
+function ProjectPicker({ state, selectProject }: { state: FactoryState; selectProject: (id: string) => void }) {
+  if (state.projects.length < 2) return null;
+  return (
+    <select aria-label="Project" className={selectClass} value={state.projectId ?? ""} onChange={(e) => selectProject(e.target.value)}>
+      {state.projects.map((project) => (
+        <option key={project.id} value={project.id}>
+          {project.name}
+        </option>
+      ))}
+    </select>
+  );
+}
+
+const Loading = ({ error }: { error: string | null }) => <div className="p-5 text-sm text-muted-foreground">{error ?? "Loading the factory…"}</div>;
+
+function InboxPage() {
+  const { rpc, state, error, run } = useFactory();
+  if (state === null) return <Loading error={error} />;
+  const groups = GROUPS.map((group) => ({ ...group, entries: state.inbox.filter((entry) => group.kinds.includes(entry.kind)) })).filter((group) => group.entries.length > 0);
+  return (
+    <Page title="Inbox" width="max-w-3xl" error={error} aside={<span className="text-sm text-muted-foreground">{state.inbox.length === 0 ? "" : `${state.inbox.length} waiting`}</span>}>
+      {groups.length === 0 ? <Empty>Nothing needs you.</Empty> : null}
+      {groups.map((group) => (
+        <section key={group.id} className="space-y-2" data-testid={`inbox-group-${group.id}`}>
+          <h2 className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+            {group.title}
+            <span className="rounded-full bg-secondary px-1.5 py-0.5 text-[11px] font-medium tabular-nums text-secondary-foreground">{group.entries.length}</span>
+          </h2>
+          <ul className="space-y-3">
+            {group.entries.map((entry) => {
+              const item = state.items.find((candidate) => candidate.id === entry.itemId);
+              return (
+                <InboxCard
+                  key={entry.id}
+                  entry={entry}
+                  ticket={item?.key ?? null}
+                  title={item?.title ?? null}
+                  link={item === undefined ? null : ticketLink(state.config, item.key)}
+                  accent={group.accent}
+                  rpc={rpc}
+                  run={run}
+                />
+              );
+            })}
+          </ul>
+        </section>
+      ))}
+    </Page>
+  );
+}
+
+function SwimlanesPage() {
+  const { rpc, state, error, run, selectProject } = useFactory();
+  if (state === null) return <Loading error={error} />;
+  return (
+    <Page title="Swimlanes" width="max-w-6xl" error={error} aside={<ProjectPicker state={state} selectProject={selectProject} />}>
+      {state.projectId === null ? <Empty>Add a project to bb to start a factory.</Empty> : <Swimlanes state={state} rpc={rpc} run={run} />}
+    </Page>
+  );
+}
+
+function OtherSettings({ state, rpc, run }: { state: FactoryState; rpc: Rpc; run: (work: Promise<unknown>) => void }) {
+  const [chime, setChime] = useState(chimeOn);
+  const [ticketUrl, setTicketUrl] = useState(state.config.ticketUrl);
+  const { projectId } = state;
+  const saveUrl = () => {
+    if (projectId === null || ticketUrl.trim() === state.config.ticketUrl) return;
+    run(rpc.call("saveConfig", { projectId, config: { ...state.config, ticketUrl: ticketUrl.trim() } }));
+  };
+  return (
+    <div className="space-y-4 rounded-lg border border-border p-4 text-sm">
+      <div className="flex flex-wrap items-center gap-2">
+        <label className="flex items-center gap-2">
+          <input
+            type="checkbox"
+            checked={chime}
+            onChange={(event) => {
+              localStorage.setItem(CHIME_KEY, event.target.checked ? "on" : "off");
+              setChime(event.target.checked);
+            }}
+          />
+          Chime when something arrives in the inbox
+        </label>
+        <button type="button" className="text-xs text-muted-foreground underline" onClick={playChime}>
+          Hear it
+        </button>
+      </div>
+      <label className="block space-y-1">
+        <span>Link for a ticket</span>
+        <input
+          className="block w-full max-w-xl rounded-md border border-input bg-transparent px-3 py-1.5 text-sm outline-none focus-visible:border-ring"
+          value={ticketUrl}
+          placeholder="https://linear.app/your-team/issue/{key}"
+          data-testid="ticket-url"
+          onChange={(event) => setTicketUrl(event.target.value)}
+          onBlur={saveUrl}
+          onKeyDown={(event) => {
+            if (event.key === "Enter") saveUrl();
+          }}
+        />
+        <span className="block text-xs text-muted-foreground">Where the arrow on a ticket goes. {"{key}"} becomes the ticket's number.</span>
+      </label>
+    </div>
+  );
+}
+
+function SettingsPage() {
+  const { rpc, state, error, run, selectProject } = useFactory();
+  if (state === null) return <Loading error={error} />;
+  return (
+    <Page title="Factory settings" width="max-w-5xl" error={error} aside={<ProjectPicker state={state} selectProject={selectProject} />}>
+      {state.projectId === null ? (
+        <Empty>Add a project to bb to start a factory.</Empty>
+      ) : (
+        <>
+          <Section title="Agents">
+            <Agents state={state} rpc={rpc} run={run} />
+          </Section>
+          <Section title="Who plays each role">
+            <Roles state={state} rpc={rpc} run={run} />
+          </Section>
+          <Section title="Other settings">
+            <OtherSettings state={state} rpc={rpc} run={run} />
+          </Section>
+        </>
+      )}
+    </Page>
   );
 }
 
@@ -1070,12 +1201,7 @@ export default definePluginApp((app) => {
       };
     },
   });
-  app.slots.navPanel({
-    id: "factory",
-    title: "Factory",
-    icon: "Workflow",
-    path: "factory",
-    component: FactoryPage,
-    experimental_useBadge: useInboxBadge,
-  });
+  app.slots.navPanel({ id: "factory", title: "Inbox", icon: "Inbox", path: "factory", component: InboxPage, experimental_useBadge: useInboxBadge });
+  app.slots.navPanel({ id: "factory-lanes", title: "Swimlanes", icon: "Workflow", path: "factory-lanes", component: SwimlanesPage });
+  app.slots.navPanel({ id: "factory-settings", title: "Factory settings", icon: "SlidersHorizontal", path: "factory-settings", component: SettingsPage });
 });

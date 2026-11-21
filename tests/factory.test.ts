@@ -30,7 +30,7 @@ function setup() {
   const sent: { threadId: string; text: string; senderThreadId?: string; attachments?: unknown[] }[] = [];
   const retried: string[] = [];
   const archived: string[] = [];
-  const updated: { threadId: string; model?: string; reasoningLevel?: string }[] = [];
+  const updated: { threadId: string; model?: string; reasoningLevel?: string; title?: string }[] = [];
   const renamed: { environmentId: string; name: string }[] = [];
   let failSpawn = false;
   /** Who started each thread's latest turn. */
@@ -83,7 +83,7 @@ function setup() {
           archived.push(args.threadId);
           return {};
         },
-        update: async (args: { threadId: string; model?: string; reasoningLevel?: string }) => {
+        update: async (args: { threadId: string; model?: string; reasoningLevel?: string; title?: string }) => {
           updated.push(args);
           return {};
         },
@@ -163,7 +163,10 @@ describe("swimlanes", () => {
     expect((await t.item("JUS-1")).status).toBe("running");
     expect((await t.item("JUS-2")).status).toBe("queued");
     expect((await t.item("JUS-3")).status).toBe("running");
-    expect(t.spawned.map((thread) => thread.title)).toEqual(["JUS-1", "JUS-3"]);
+    // A thread is titled with its role; the ticket is the workspace's name.
+    expect(t.spawned.map((thread) => thread.title)).toEqual(["Plan", "Plan"]);
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(t.renamed).toEqual([{ environmentId: "env_th_1", name: "JUS-1" }, { environmentId: "env_th_2", name: "JUS-3" }]);
   });
 
   it("gives each ticket its own new worktree", async () => {
@@ -259,7 +262,7 @@ describe("pipeline handoffs", () => {
     await t.tool("factory_stage_done", "th_1", { outcome: "complete", summary: "Plan is at Plans/JUS-1.md." });
 
     const review = t.spawned[1]!;
-    expect(review.title).toBe("JUS-1 · Plan review");
+    expect(review.title).toBe("Issue owner");
     expect(review.environment).toEqual({ type: "reuse", environmentId: "env_th_1" });
     expect(review).toMatchObject({ providerId: "claude-code", model: "claude-opus-5-5", reasoningLevel: "high" });
     expect(review.prompt).toContain("Use the `review-plan` skill");
@@ -267,7 +270,7 @@ describe("pipeline handoffs", () => {
     expect(review.prompt).toContain("factory_stage_done");
 
     await t.tool("factory_stage_done", "th_2", { outcome: "complete", summary: "Plan reviewed; two corrections landed." });
-    expect(t.spawned[2]).toMatchObject({ title: "JUS-1 · Execution", providerId: "codex", model: "gpt-terra" });
+    expect(t.spawned[2]).toMatchObject({ title: "Execution", providerId: "codex", model: "gpt-terra" });
     // Unset role fields are left to the project default rather than sent empty.
     expect(t.spawned[0]).not.toHaveProperty("providerId");
   });
@@ -295,7 +298,7 @@ describe("pipeline handoffs", () => {
     expect(t.spawned).toHaveLength(2);
 
     await t.tool("factory_stage_done", "th_1", { outcome: "complete", summary: "Findings folded in." });
-    expect(t.spawned.at(-1)!.title).toBe("JUS-1 · Ship");
+    expect(t.spawned.at(-1)!.title).toBe("Ship");
   });
 
   it("runs the review again, in a new thread, only when the author asks for it", async () => {
@@ -304,7 +307,7 @@ describe("pipeline handoffs", () => {
     await t.tool("factory_stage_done", "th_2", { outcome: "changes_requested", summary: "Change X." });
     await t.tool("factory_stage_done", "th_1", { outcome: "complete", summary: "Changed scope.", rereview: true });
 
-    expect(t.spawned.at(-1)).toMatchObject({ id: "th_3", title: "JUS-1 · Code review" });
+    expect(t.spawned.at(-1)).toMatchObject({ id: "th_3", title: "Code review" });
   });
 
   it("returns findings to the thread that queued the ticket when the pipeline has no author stage", async () => {
@@ -318,7 +321,7 @@ describe("pipeline handoffs", () => {
 
     const cli = await t.harness.behavior.runCli(["advance", "JUS-1"], { projectId: PROJECT, threadId: orchestrator.threadId });
     expect(cli.exitCode).toBe(0);
-    expect(t.spawned.at(-1)!.title).toBe("JUS-1 · Execution");
+    expect(t.spawned.at(-1)!.title).toBe("Execution");
   });
 
   it("rejects a report from a thread whose stage is no longer current", async () => {
@@ -342,7 +345,7 @@ describe("a ticket's issue owner fields everything about it", () => {
     await t.enqueue("JUS-1", "Coach", "planned");
     expect(t.spawned[0]!.prompt).toContain("You are the issue owner for JUS-1");
     await t.tool("factory_stage_done", "th_1", { outcome: "complete", summary: "Plan reviewed." });
-    expect(t.spawned.at(-1)).toMatchObject({ id: "th_2", title: "JUS-1 · Execution" });
+    expect(t.spawned.at(-1)).toMatchObject({ id: "th_2", title: "Execution" });
   };
 
   it("sends the builder's question to the owner, and resumes on its reply", async () => {
@@ -368,7 +371,7 @@ describe("a ticket's issue owner fields everything about it", () => {
     await t.tool("factory_ask_planner", "th_2", { question: "One more: which fixture?" });
     await t.tool("factory_message", "th_1", { to: "JUS-1", message: "The hand-log one." });
     await t.tool("factory_stage_done", "th_2", { outcome: "complete", summary: "Built." });
-    expect(t.spawned.at(-1)!.title).toBe("JUS-1 · Code review");
+    expect(t.spawned.at(-1)!.title).toBe("Code review");
     expect((await t.state()).inbox).toEqual([]);
   });
 
@@ -432,7 +435,7 @@ describe("a ticket's issue owner fields everything about it", () => {
     await t.enqueue("JUS-9", "Coach", "reviewed");
     expect(t.spawned).toHaveLength(1);
     await t.tool("factory_ask_planner", "th_1", { question: "Blocked." });
-    expect(t.spawned.at(-1)).toMatchObject({ id: "th_2", title: "JUS-9 · Issue owner", environment: { type: "reuse", environmentId: "env_th_1" } });
+    expect(t.spawned.at(-1)).toMatchObject({ id: "th_2", title: "Issue owner", environment: { type: "reuse", environmentId: "env_th_1" } });
     expect(t.spawned.at(-1)!.prompt).toContain("Its plan was reviewed before it reached the factory");
     expect(t.sent.at(-1)).toMatchObject({ threadId: "th_2", senderThreadId: "th_1" });
     // The same owner is used from then on.
@@ -474,6 +477,29 @@ describe("a ticket's issue owner fields everything about it", () => {
     expect((await t.state()).inbox).toEqual([]);
   });
 
+  it("briefs an owner whose thread predates owners, the first time the founder writes to it", async () => {
+    await start();
+    // As saved by a version before owners: the thread was never told what it is.
+    t.host.bb.storage.database().prepare(`UPDATE items SET data = json_remove(data, '$.ownerBriefed')`).run();
+    await t.founderTypes("th_1");
+    expect(t.sent.at(-1)).toMatchObject({ threadId: "th_1" });
+    expect(t.sent.at(-1)!.text).toContain("this thread is the issue owner for JUS-1");
+    expect(t.sent.at(-1)!.text).toContain("factory_follow_up");
+    // Once is enough.
+    const count = t.sent.length;
+    await t.founderTypes("th_1");
+    expect(t.sent).toHaveLength(count);
+  });
+
+  it("retitles threads and workspaces named the old way", async () => {
+    await start();
+    const report = await t.harness.behavior.runCli(["retitle"], { projectId: PROJECT });
+    expect(JSON.stringify(report)).toContain("JUS-1: 2 threads");
+    expect(t.updated).toEqual(expect.arrayContaining([{ threadId: "th_1", title: "Issue owner" }, { threadId: "th_2", title: "Execution" }]));
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(t.renamed.at(-1)).toEqual({ environmentId: "env_th_1", name: "JUS-1" });
+  });
+
   it("offers the tools and the owner's charter to every stage thread", async () => {
     const config = await t.harness.behavior.resolveAgentConfiguration(
       makePluginAgentConfigurationContext({ pluginMetadata: { binding: { kind: "stage", itemId: "itm_1", stage: "build" } } } as never),
@@ -503,10 +529,10 @@ describe("small bugs ride with a planned ticket", () => {
     await t.tool("factory_stage_done", "th_3", { outcome: "complete", summary: "Reviewed." });
     await t.tool("factory_stage_done", "th_4", { outcome: "complete", summary: "Shipped." });
     // JUS-2 starts: its owner and then its builder are both told about the bug.
-    expect(t.spawned.at(-1)).toMatchObject({ id: "th_5", title: "JUS-2" });
+    expect(t.spawned.at(-1)).toMatchObject({ id: "th_5", title: "Issue owner" });
     expect(t.spawned.at(-1)!.prompt).toContain("- JUS-50: Skip button misaligned");
     await t.tool("factory_stage_done", "th_5", { outcome: "complete", summary: "Plan reviewed." });
-    expect(t.spawned.at(-1)!.title).toBe("JUS-2 · Execution");
+    expect(t.spawned.at(-1)!.title).toBe("Execution");
     expect(t.spawned.at(-1)!.prompt).toContain("Small bugs ride with this ticket");
     expect(t.spawned.at(-1)!.prompt).toContain("- JUS-50: Skip button misaligned");
   });
@@ -521,7 +547,7 @@ describe("small bugs ride with a planned ticket", () => {
 
   it("runs a small bug on its own only when no planned ticket is coming up, and moves it if its ticket is cancelled", async () => {
     await t.enqueue("JUS-60", "Coach", "small-bug");
-    expect(t.spawned.at(-1)).toMatchObject({ title: "JUS-60" });
+    expect(t.spawned.at(-1)).toMatchObject({ title: "Fix" });
 
     await t.enqueue("JUS-1", "Other", "planned");
     await t.enqueue("JUS-2", "Other", "planned");
@@ -657,7 +683,7 @@ describe("founder inbox", () => {
 
     t.breakSpawn(false);
     await t.rpc("retry", { entryId: inbox[0]!.id });
-    expect(t.spawned[0]!.title).toBe("JUS-1");
+    expect(t.spawned[0]!.title).toBe("Execution");
     expect((await t.item("JUS-1")).status).toBe("running");
   });
 
@@ -808,7 +834,7 @@ describe("the founder tries a visible change before it ships", () => {
     expect((await t.item("JUS-1")).status).toBe("needs-founder");
 
     await t.rpc("approve", { entryId: inbox[0]!.id });
-    expect(t.spawned.at(-1)!.title).toBe("JUS-1 · Ship");
+    expect(t.spawned.at(-1)!.title).toBe("Ship");
     expect((await t.state()).inbox).toEqual([]);
   });
 
@@ -864,7 +890,7 @@ describe("the founder tries a visible change before it ships", () => {
     expect(again.context).toContain("**Now:** One tap checks a set off.");
     expect((await t.item("JUS-1")).status).toBe("needs-founder");
     await t.rpc("approve", { entryId: again.id });
-    expect(t.spawned.at(-1)!.title).toBe("JUS-1 · Ship");
+    expect(t.spawned.at(-1)!.title).toBe("Ship");
   });
 
   it("reopens a shipped ticket when its owner sends the builder follow-up work", async () => {
@@ -891,9 +917,9 @@ describe("the founder tries a visible change before it ships", () => {
     const reply = await t.tool("factory_follow_up", "th_1", { key: "JUS-20", title: "Round two", handoff: "Fix the overlap with long names." });
     expect(reply).toContain("JUS-20 has taken over this workspace");
     // A builder starts on the handoff in the shipped ticket's workspace: no new worktree.
-    expect(t.spawned.at(-1)).toMatchObject({ id: "th_5", title: "JUS-20", environment: { type: "reuse", environmentId: "env_th_1" } });
+    expect(t.spawned.at(-1)).toMatchObject({ id: "th_5", title: "Execution", environment: { type: "reuse", environmentId: "env_th_1" } });
     expect(t.spawned.at(-1)!.prompt).toContain("Fix the overlap with long names.");
-    expect(t.renamed).toEqual([{ environmentId: "env_th_1", name: "JUS-20" }]);
+    expect(t.renamed.at(-1)).toEqual({ environmentId: "env_th_1", name: "JUS-20" });
     // The shipped ticket leaves the board; nothing is done and in progress at once.
     const board = (await t.state()).items.filter((item) => item.status !== "archived");
     expect(board.map((item) => [item.key, item.status, item.pipeline])).toEqual([["JUS-20", "running", "reviewed"]]);
@@ -919,7 +945,7 @@ describe("the founder tries a visible change before it ships", () => {
     const first = (await t.state()).inbox[0]!;
     await t.rpc("answer", { entryId: first.id, answer: "The check mark is too small." });
     // A ticket reviewed elsewhere gets its owner now, and the notes go there.
-    expect(t.spawned.at(-1)!.title).toBe("JUS-1 · Issue owner");
+    expect(t.spawned.at(-1)!.title).toBe("Issue owner");
     expect(t.sent.at(-1)).toMatchObject({ threadId: "th_3" });
     expect(t.sent.at(-1)!.text).toContain("The check mark is too small.");
   });
@@ -928,7 +954,7 @@ describe("the founder tries a visible change before it ships", () => {
     await t.enqueue("JUS-1", "Coach", "reviewed");
     await t.tool("factory_stage_done", "th_1", { outcome: "complete", summary: "Built." });
     await t.tool("factory_stage_done", "th_2", { outcome: "complete", summary: "Review complete." });
-    expect(t.spawned.at(-1)!.title).toBe("JUS-1 · Ship");
+    expect(t.spawned.at(-1)!.title).toBe("Ship");
   });
 
   it("keeps a merged ticket under Done until the founder archives its workspace, and never archives for him", async () => {
@@ -962,7 +988,7 @@ describe("the founder tries a visible change before it ships", () => {
 
     // The founder removes the Later label: the next schedule starts it.
     await sync([{ key: "JUS-1", title: "Parked", pipeline: "reviewed" }]);
-    expect(t.spawned.at(-1)!.title).toBe("JUS-1");
+    expect(t.spawned.at(-1)!.title).toBe("Execution");
     expect(await t.item("JUS-1")).toMatchObject({ status: "running", parked: false, pipeline: "reviewed" });
   });
 });
@@ -992,10 +1018,10 @@ describe("builder tiers", () => {
     });
     await t.harness.behavior.runCli(["sync", sync], { projectId: PROJECT });
     expect(t.spawned.map((thread) => `${thread.title} ${thread.model}`)).toEqual([
-      "JUS-1 gpt-sol",
-      "JUS-2 claude-opus-5-5",
-      "JUS-3 claude-fable-5-2",
-      "JUS-4 gpt-sol",
+      "Execution gpt-sol",
+      "Execution claude-opus-5-5",
+      "Execution claude-fable-5-2",
+      "Execution gpt-sol",
     ]);
     // The tier chooses the builder only; the reviewer is the same for all.
     await t.tool("factory_stage_done", "th_3", { outcome: "complete", summary: "Built." });
@@ -1045,7 +1071,7 @@ describe("falling back when a model's limit runs out", () => {
     await t.enqueue("JUS-1", "Coach", "reviewed");
     await limit("th_1", Date.now() + 3_600_000);
     await t.enqueue("JUS-2", "Plan", "reviewed");
-    expect(t.spawned.at(-1)).toMatchObject({ title: "JUS-2", model: "claude-opus-5-5" });
+    expect(t.spawned.at(-1)).toMatchObject({ title: "Execution", model: "claude-opus-5-5" });
   });
 
   it("switches a thread once: a limit on the fallback too goes to the founder", async () => {
@@ -1078,7 +1104,7 @@ describe("falling back when a model's limit runs out", () => {
     expect(t.updated).toEqual([]);
     expect(t.retried).toEqual([]);
     const replacement = t.spawned.at(-1)!;
-    expect(replacement).toMatchObject({ id: "th_2", title: "JUS-1 · Execution", providerId: "codex", model: "gpt-sol" });
+    expect(replacement).toMatchObject({ id: "th_2", title: "Execution", providerId: "codex", model: "gpt-sol" });
     expect(replacement).not.toHaveProperty("reasoningLevel");
     expect(replacement.environment).toEqual({ type: "reuse", environmentId: "env_th_1" });
     expect(replacement.prompt).toContain("bb thread log th_1");
@@ -1088,10 +1114,10 @@ describe("falling back when a model's limit runs out", () => {
 
     // The new thread reports for the stage; the old one no longer can.
     await t.tool("factory_stage_done", "th_2", { outcome: "complete", summary: "Built." });
-    expect(t.spawned.at(-1)!.title).toBe("JUS-1 · Code review");
+    expect(t.spawned.at(-1)!.title).toBe("Code review");
     // A limit on the fallback as well goes to the founder, not back and forth.
     await t.enqueue("JUS-2", "Plan", "reviewed");
-    expect(t.spawned.at(-1)).toMatchObject({ title: "JUS-2", providerId: "codex" });
+    expect(t.spawned.at(-1)).toMatchObject({ title: "Execution", providerId: "codex" });
   });
 
   it("moves a standing agent to a new thread on another provider when its limit runs out", async () => {

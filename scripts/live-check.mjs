@@ -141,21 +141,43 @@ async function runButtonChecks(entry) {
     const runLabel = await button.filter({ hasText: "Run" }).waitFor({ timeout: 15_000 }).then(() => true, () => false);
     check("the button reads Run again", runLabel);
 
+    // --- the other two pages
+    await page.screenshot({ path: join(work, "page-inbox.png"), fullPage: false });
+    check("the inbox groups entries by what they ask of him", (await page.locator('[data-testid="inbox-group-try"]').count()) === 1 && (await page.locator('[data-testid="inbox-group-fix"]').count()) === 1);
+    await page.goto(`http://127.0.0.1:${PORT}/plugins/bbonductor/factory-lanes`);
+    const lanes = await page.locator('[data-testid="lane"]').first().waitFor({ timeout: 30_000 }).then(() => true, () => false);
+    await page.screenshot({ path: join(work, "page-lanes.png") });
+    check("swimlanes have their own page", lanes && (await page.locator('[data-testid="inbox-entry"]').count()) === 0);
+    await page.goto(`http://127.0.0.1:${PORT}/plugins/bbonductor/factory-settings`);
+    const url = page.locator('[data-testid="ticket-url"]');
+    await url.waitFor({ timeout: 30_000 });
+    await url.fill("https://tracker.example/issue/{key}");
+    await url.press("Enter");
+    await page.waitForTimeout(1500);
+    await page.screenshot({ path: join(work, "page-settings.png") });
+    await page.goto(`http://127.0.0.1:${PORT}/plugins/bbonductor/factory-lanes`);
+    const arrow = await page.locator('[data-testid="ticket-link"]:visible').first().waitFor({ timeout: 30_000 }).then(() => true, () => false);
+    check("settings has its own page, and a ticket link set there puts an arrow on each ticket", arrow);
+    await page.goto(`http://127.0.0.1:${PORT}/plugins/bbonductor/factory`);
+    await page.locator('[data-testid="inbox-entry"]').first().waitFor({ timeout: 30_000 });
+
     // --- the reply box on that entry
-    const reply = page.locator('[data-testid="inbox-reply"]').last();
+    // The check waiting on the founder, wherever its group puts it on the page.
+    const gateCard = () => page.locator('[data-testid="inbox-entry"]').filter({ hasText: "Try it before it ships" });
+    const reply = gateCard().locator('[data-testid="inbox-reply"]');
     const oneLine = (await reply.boundingBox()).height;
     await reply.fill("The name is right.\nThe spacing under it is too tight.\nSee the picture.\nFourth line.");
     const grew = await until(async () => ((await reply.boundingBox()).height > oneLine * 2 ? true : null), 5_000);
     check("the reply box grows as the founder types more lines", grew === true);
     writeFileSync(join(work, "shot.png"), Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==", "base64"));
-    await page.locator('[data-testid="inbox-attach-input"]').last().setInputFiles(join(work, "shot.png"));
+    await gateCard().locator('[data-testid="inbox-attach-input"]').setInputFiles(join(work, "shot.png"));
     const attached = await page.locator('[data-testid="inbox-attachments"]').getByText("shot.png").waitFor({ timeout: 15_000 }).then(() => true, () => false);
     check("a picture can be attached to the reply", attached);
     await page.reload();
-    const kept = await until(async () => ((await page.locator('[data-testid="inbox-reply"]').last().inputValue().catch(() => "")).includes("spacing under it") ? true : null), 20_000);
+    const kept = await until(async () => ((await gateCard().locator('[data-testid="inbox-reply"]').inputValue().catch(() => "")).includes("spacing under it") ? true : null), 20_000);
     const keptFile = (await page.locator('[data-testid="inbox-attachments"]').getByText("shot.png").count()) > 0;
     check("the draft and its attachment survive leaving the page", kept === true && keptFile);
-    await page.locator('[data-testid="inbox-open-thread"]').last().click();
+    await gateCard().locator('[data-testid="inbox-open-thread"]').click();
     const composer = page.getByText("The spacing under it is too tight.").first();
     const carried = await composer.waitFor({ timeout: 20_000 }).then(() => true, () => false);
     check("opening the thread brings the draft into its composer", carried && page.url().includes(entry.threadId), page.url());
@@ -163,7 +185,7 @@ async function runButtonChecks(entry) {
     check("the thread shows what the founder was asked, above its composer", banner);
     await page.screenshot({ path: join(work, "draft-in-thread.png") });
     await page.goto(`http://127.0.0.1:${PORT}/plugins/bbonductor/factory`);
-    const again = page.locator('[data-testid="inbox-reply"]').last();
+    const again = gateCard().locator('[data-testid="inbox-reply"]');
     await again.waitFor({ timeout: 30_000 });
     check("the draft has moved, not been copied: the inbox box is empty again", (await again.inputValue()) === "");
 
@@ -275,6 +297,9 @@ async function main() {
       new RegExp(`${buildThread?.environmentId}\\s+\\S+\\s+git-worktree`).test(bb(["environment", "list", "--project", project])),
     );
 
+    const named = await until(() => (JSON.parse(bb(["environment", "list", "--json"])).find((e) => e.id === buildThread?.environmentId)?.name === "LIVE-1" ? true : null), 15_000);
+    check("the thread is titled with its role and the workspace with its ticket", buildThread?.title === "Execution" && named === true, `${buildThread?.title}`);
+
     // --- stall detection (the echo model never reports)
     const stalled = await until(() => (ticket("LIVE-1").status === "stalled" ? true : null), 30_000);
     check("a thread that stops without reporting is nudged, then escalated", stalled === true);
@@ -295,7 +320,7 @@ async function main() {
       ["factory", "ask", "Should rest days count as missed?", "--context", "Today they count as rest.", "--option", "Count as rest", "--option", "Count as missed", "--recommend", "Count as missed."],
       as(review),
     );
-    const owner = await until(() => threads().find((t) => t.title === "LIVE-1 · Issue owner"));
+    const owner = await until(() => threads().find((t) => t.title === "Issue owner"));
     check("a stage's question starts the ticket's issue owner and goes there first", Boolean(owner) && status().inbox.every((e) => e.kind !== "question"));
     check("the owner works in the ticket's own workspace", (await until(() => threads().find((t) => t.id === owner.id)?.environmentId)) === buildThread?.environmentId);
     check("the ticket shows as with its issue owner", ticket("LIVE-1").status === "with-owner");

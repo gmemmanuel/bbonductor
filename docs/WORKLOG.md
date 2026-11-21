@@ -14,7 +14,7 @@ What was built, researched and learned, newest first. It replaces an issue track
 In rough order.
 
 1. **Founder picks models per role, starts the orchestrator, and runs one small Justus ticket by hand.** Then resume the three paused automations.
-3. **Feedback reaches Watch when it arrives (founder, 21 November: a trigger, not a cron; he dislikes long-lived connections).** A webhook through bb is ruled out: plugin routes and shared ports both sit behind bb's sign-in. What is left: a script every minute that asks the database for new feedback and wakes Watch only when there is some (no model runs otherwise), or a tunnel or Slack connection he would have to accept. Awaiting his choice.
+3. **Feedback review is with the planner, on request** (founder, 21 November). No trigger; a webhook through bb is impossible and he declined a timer and a Slack connection.
 4. **Revisit ticket approval around 30 November 2026.** The founder approves every new ticket for the first week or two; ask then whether the orchestrator may create them on its own.
 5. **Teach the Justus instructions about the factory.** `AGENTS.md` there says the founder launches reviews and ship; under the factory the factory does. Its `review-plan` skill already says the reviewer stays the ticket's planner; add that the founder's feedback comes to it too, and that small bugs ride with a planned ticket (the `SMALL_BUG` fast path and its resolver assume a branch per bug).
 6. **Builder and shipper as sub-agents of the issue owner**, possibly on other providers, if threads stop being the useful shape. Held by the founder.
@@ -26,6 +26,15 @@ In rough order.
 11. **Install bb's Conductor layout when it is released.**
 
 ## Log
+
+### 21 November 2026 (second session): pages, titles, Conductor look
+
+- **Factory split into Inbox, Swimlanes and Factory settings.** Inbox grouped and restyled; ticket cards link to the tracker (`ticketUrl` in settings).
+- **Threads titled by role; workspaces named by ticket.** `bb factory retitle` brought the founder's existing threads in line.
+- **Owners that predate owners are briefed** when the founder first writes to them.
+- **Conductor-look plugin (local copy):** clean composer, brown box on messages he typed, Run/Stop in the thread header, double-click to rename a workspace or a tab, line counts on hover only, no chat count.
+- **Tried and ruled out:** a webhook to this Mac through bb. Feedback dropped from Watch at his request.
+- **Checked:** 72 behaviour tests, 55 live checks. **Not checked:** the Conductor-look changes in the desktop window (headless browser only); double-click rename by hand.
 
 ### 21 November 2026: follow-up tickets; Watch's history
 
