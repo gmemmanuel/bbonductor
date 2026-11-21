@@ -9,6 +9,7 @@ import {
 } from "@get-bb/plugin-sdk/testing";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import plugin, { type FactoryState } from "../server.js";
+import { parseRunCommand } from "../src/factory/runScript.js";
 
 const PROJECT = "proj_1";
 
@@ -982,5 +983,19 @@ describe("configuration and CLI", () => {
     t.harness = reloaded.harness;
     const state = (await reloaded.harness.behavior.callRpc("state", { projectId: PROJECT })) as FactoryState;
     expect(state.items.map((item) => `${item.key} ${item.status}`)).toEqual(["JUS-1 running"]);
+  });
+});
+
+describe("the project's Run command", () => {
+  it("reads the plain form and Conductor's table form, preferring the table marked default", () => {
+    expect(parseRunCommand('[scripts]\nsetup = "./setup.sh"\nrun = "npm run dev"\n')).toBe("npm run dev");
+    expect(
+      parseRunCommand('[scripts.run.web]\ncommand = "npm run web"\n\n# the phone build\n[scripts.run.run]\ncommand = "npm run dev"\ndefault = true\n'),
+    ).toBe("npm run dev");
+    expect(parseRunCommand('[scripts.run.web]\ncommand = "npm run web"\n[scripts.run.ios]\ncommand = "npm run ios"\n')).toBe("npm run web");
+  });
+
+  it("finds nothing in a file with no run command, even when a prompt's text looks like one", () => {
+    expect(parseRunCommand('[scripts]\nsetup = "./setup.sh"\n\n[prompts]\ncode_review = """Use the skill.\nrun = "not this"\n"""\n')).toBeNull();
   });
 });

@@ -93,6 +93,9 @@ A standing agent is a pinned thread in the project's main checkout, started from
 ## Experimental bb APIs in use
 
 - `app.slots.experimental_appOverlay` mounts the inbox chime once per window, so it plays on any page.
+- `experimental_appOverlay` also mounts the Run watcher, which lists each thread's terminals and listens to `thread:changed` for `terminals-changed`.
+- `app.contentScripts` with `experimental_setThreadRowStatus` puts the "Run is up" mark on a thread row. It is the only way a plugin can decorate a row, and it has no SDK client, so it hands its setter to the overlay.
+- `navigate.experimental_openTerminal` shows the Run terminal beside the Factory page.
 
 - `app.slots.navPanel({ experimental_useBadge })` for the rail count.
 - `threads.interactions.list` result shape is read defensively.
