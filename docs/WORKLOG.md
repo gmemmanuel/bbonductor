@@ -25,6 +25,14 @@ In rough order.
 
 ## Log
 
+### 20 November 2026 (ninth session): Run from the inbox
+
+- **Run button on inbox entries the founder has to try** (to-do, test, try before it ships). It starts the project's Run command in that ticket's workspace and shows the terminal beside the inbox; it reads Stop while that workspace is running.
+- **The sidebar marks a workspace while its Run command is up**, whichever Run button started it.
+- The Chief of Staff's thread in the founder's bb was titled "Persistent agents"; renamed to "Chief of staff".
+- The live check now presses the button in a real browser (seven new checks).
+- **Checked:** 59 behaviour tests, 36 live checks on bb 0.49 with bb's normal sidebar. **Not checked:** the mark in the founder's Conductor layout on bb 0.50.1, and a phone connecting (blocked by Little Snitch on his Mac).
+
 ### 20 November 2026 (eighth session): clearer founder asks
 
 - **An inbox entry now shows the ticket title on its own line, then the ask in larger type.** `factory_ask_founder` takes a required `kind` (decision, todo, test) plus `account` and `steps`; the engine drops options and recommendation from anything that is not a decision. Question and context limits are shorter. Chief of staff and deployer charters updated.

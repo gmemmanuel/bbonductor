@@ -14,6 +14,7 @@
 // else (threads, worktrees, events, messages, the inbox) is real.
 import { execFileSync, spawn } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync, cpSync, readdirSync } from "node:fs";
+import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -88,6 +89,62 @@ function prepareEchoProvider() {
   sh("npm", ["install", "--no-audit", "--no-fund"], { cwd: echoDir });
 }
 
+/** A Chromium to drive the page with: Playwright's cached one, else Chrome. */
+function findBrowser() {
+  const cache = join(homedir(), "Library", "Caches", "ms-playwright");
+  const cached = existsSync(cache)
+    ? readdirSync(cache)
+        .filter((name) => /^chromium-\d+$/.test(name))
+        .sort()
+        .reverse()
+        .flatMap((name) => readdirSync(join(cache, name)).map((dir) => join(cache, name, dir, "Google Chrome for Testing.app", "Contents", "MacOS", "Google Chrome for Testing")))
+    : [];
+  return [...cached, "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"].find((path) => existsSync(path)) ?? null;
+}
+
+const runTerminals = (threadId) =>
+  JSON.parse(bb(["terminal", "list", "--thread", threadId, "--json"])).sessions.filter((session) => session.title === "Run" && session.status === "running");
+
+async function runButtonChecks(entry) {
+  const executablePath = findBrowser();
+  if (executablePath === null) {
+    check("the inbox Run button starts the project's Run command", false, "No Chromium found. Run: npx playwright install chromium");
+    return;
+  }
+  // A new bb opens on its first-run setup guide, which would cover the page.
+  bb(["settings", "general", "onboardingCompletedAt", String(Date.now())]);
+  const { chromium } = await import("playwright-core");
+  const browser = await chromium.launch({ executablePath });
+  try {
+    const page = await browser.newPage({ viewport: { width: 1400, height: 900 } });
+    await page.goto(`http://127.0.0.1:${PORT}/plugins/bbonductor/factory`);
+    const button = page.locator('[data-testid="inbox-run"]').first();
+    await button.waitFor({ timeout: 30_000 });
+    await button.click();
+    const started = await until(() => runTerminals(entry.threadId)[0] ?? null);
+    check("the inbox Run button starts a Run terminal in the ticket's workspace", started !== null);
+    const ran = started === null ? null : await until(() => (bb(["terminal", "output", started.id]).includes("factory-run-42") ? true : null));
+    check("it runs the command from the project's settings file", ran === true);
+    const mark = page.getByLabel("Run is up in this workspace").first();
+    const marked = await mark.waitFor({ state: "attached", timeout: 15_000 }).then(() => true, () => false);
+    check("the sidebar marks a workspace whose Run is up", marked);
+    await page.screenshot({ path: join(work, "run-button.png") });
+
+    // While it is up the same button stops it.
+    const stopLabel = await button.filter({ hasText: "Stop" }).waitFor({ timeout: 15_000 }).then(() => true, () => false);
+    check("the Run button reads Stop while that workspace is running", stopLabel);
+    await button.click();
+    const stopped = await until(() => (runTerminals(entry.threadId).length === 0 ? true : null));
+    check("pressing Stop ends the Run command", stopped === true);
+    const cleared = await mark.waitFor({ state: "detached", timeout: 15_000 }).then(() => true, () => false);
+    check("the mark clears when Run stops", cleared);
+    const runLabel = await button.filter({ hasText: "Run" }).waitFor({ timeout: 15_000 }).then(() => true, () => false);
+    check("the button reads Run again", runLabel);
+  } finally {
+    await browser.close();
+  }
+}
+
 async function main() {
   mkdirSync(work, { recursive: true });
   rmSync(dataDir, { recursive: true, force: true });
@@ -96,6 +153,10 @@ async function main() {
   mkdirSync(repoDir, { recursive: true });
   sh("git", ["init", "-q", "-b", "main"], { cwd: repoDir });
   writeFileSync(join(repoDir, "README.md"), "# factory live check\n");
+  // The Run command the inbox Run button starts. The shell does the sum, so
+  // the marker only appears in the output if the command really ran.
+  mkdirSync(join(repoDir, ".conductor"), { recursive: true });
+  writeFileSync(join(repoDir, ".conductor", "settings.toml"), '[scripts.run.run]\ncommand = "echo factory-run-$((40+2)); sleep 600"\ndefault = true\n');
   sh("git", ["add", "."], { cwd: repoDir });
   sh("git", ["-c", "user.email=live@example.com", "-c", "user.name=Live", "commit", "-qm", "init"], { cwd: repoDir });
 
@@ -218,6 +279,10 @@ async function main() {
     bb(["factory", "done", "--outcome", "complete", "--summary", "Helper renamed.", "--founder-check", "Open the greeting screen as demo@example.com and see the new name."], as(build));
     const gate = await until(() => status().inbox.find((e) => e.kind === "check"));
     check("a visible change waits for the founder to try it before ship", Boolean(gate) && !ticket("LIVE-1").threads.ship);
+
+    // --- the founder presses Run on that inbox entry, in a real browser
+    await runButtonChecks(gate);
+
     bb(["factory", "approve", gate.id]);
     const ship = await until(() => ticket("LIVE-1").threads.ship);
     check("after fixes the ticket goes to ship without a second review", Boolean(ship));

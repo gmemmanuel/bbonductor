@@ -1,7 +1,7 @@
 // Factory — frontend entry. One page: the founder's inbox on top, the
 // swimlanes under it, then who plays each role and the standing agents.
 // React and @get-bb/plugin-sdk/app are provided by bb at load time.
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import type { FormEvent, ReactNode } from "react";
 import {
   Markdown,
@@ -9,9 +9,11 @@ import {
   useBbNavigate,
   useRealtime,
   useRpc,
+  useSdk,
 } from "@get-bb/plugin-sdk/app";
 import type { FactoryState, rpcContract } from "./server";
 import type { Config, InboxEntry, Item, Role } from "./src/factory/model";
+import { RUN_SETTINGS_FILE, RUN_TERMINAL_TITLE, parseRunCommand } from "./src/factory/runScript";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
@@ -64,6 +66,143 @@ function InboxChime() {
     if (chimeOn()) playChime();
   });
   return null;
+}
+
+type Sdk = ReturnType<typeof useSdk>;
+type Navigate = ReturnType<typeof useBbNavigate>;
+
+function toBase64(text: string): string {
+  let binary = "";
+  for (const byte of new TextEncoder().encode(text)) binary += String.fromCharCode(byte);
+  return btoa(binary);
+}
+
+function fromBase64(content: string): string {
+  return new TextDecoder().decode(Uint8Array.from(atob(content), (char) => char.charCodeAt(0)));
+}
+
+/** The Run terminals that are up, across the given threads. */
+async function runningRuns(sdk: Sdk, threadIds: readonly string[]) {
+  const lists = await Promise.all(
+    threadIds.map((threadId) => sdk.terminals.list({ scope: { kind: "thread", threadId } }).catch(() => ({ sessions: [] }))),
+  );
+  return lists.flatMap((list) => list.sessions).filter((session) => session.title === RUN_TERMINAL_TITLE && (session.status === "running" || session.status === "starting"));
+}
+
+/**
+ * Start the project's Run command in a ticket's workspace, as bb's own Run
+ * button does: one Run per workspace, in a terminal titled "Run". The
+ * terminal opens beside the inbox when this surface can show one (the QR code
+ * for a phone is in it); otherwise bb goes to the thread.
+ */
+async function runInWorkspace(sdk: Sdk, navigate: Navigate, threadId: string): Promise<void> {
+  const thread = await sdk.threads.get({ threadId });
+  if (thread.environmentId === null) throw new Error("This thread has no workspace to run in.");
+  const environment = await sdk.environments.get({ environmentId: thread.environmentId });
+  if (environment.path === null) throw new Error("This workspace has no checkout to run in.");
+  const file = await sdk.files
+    .read({ hostId: environment.hostId, rootPath: environment.path, path: `${environment.path}/${RUN_SETTINGS_FILE}` })
+    .catch(() => null);
+  const command = file === null ? null : parseRunCommand(file.contentEncoding === "utf8" ? file.content : fromBase64(file.content));
+  if (command === null) throw new Error(`This project has no Run command. Add one to ${RUN_SETTINGS_FILE}.`);
+  const siblings = await sdk.threads.list({ environmentId: environment.id });
+  const stale = await runningRuns(sdk, [...new Set([threadId, ...siblings.map((sibling) => sibling.id)])]);
+  await Promise.all(stale.map((session) => sdk.terminals.close({ terminalId: session.id, mode: "force" }).catch(() => undefined)));
+  const terminal = await sdk.terminals.create({ scope: { kind: "thread", threadId }, cols: 120, rows: 32, title: RUN_TERMINAL_TITLE, start: { mode: "shell" } });
+  await sdk.terminals.input({ terminalId: terminal.id, dataBase64: toBase64(`${command}\n`) });
+  await recheckRuns([threadId]);
+  const shown = await navigate.experimental_openTerminal({ terminalId: terminal.id }).catch(() => false);
+  if (!shown) navigate.toThread(threadId);
+}
+
+async function stopRuns(sdk: Sdk, sessions: readonly RunSession[]): Promise<void> {
+  await Promise.all(sessions.map((session) => sdk.terminals.close({ terminalId: session.terminalId, mode: "force" })));
+  await recheckRuns([...new Set(sessions.map((session) => session.threadId))]);
+}
+
+/**
+ * Which Run commands are up, kept for the whole app: the sidebar marks those
+ * workspaces and an inbox card turns its Run button into Stop. A plugin can
+ * only decorate thread rows, and only from its app-wide script, so that script
+ * hands its setter to the overlay below, which has the SDK to watch terminals.
+ */
+interface RunSession {
+  terminalId: string;
+  threadId: string;
+  environmentId: string | null;
+}
+type RowStatusSetter = (threadId: string, status: { icon: string; label: string; tone: "running" } | null) => void;
+const RUN_MARK = { icon: "Play", label: "Run is up in this workspace", tone: "running" } as const;
+let runs: readonly RunSession[] = [];
+const runListeners = new Set<() => void>();
+let recheckRuns: (threadIds: readonly string[]) => Promise<void> = async () => undefined;
+let setRowStatus: RowStatusSetter | null = null;
+const marked = new Set<string>();
+
+function syncMarks() {
+  if (setRowStatus === null) return;
+  const up = new Set(runs.map((session) => session.threadId));
+  for (const threadId of marked) {
+    if (up.has(threadId)) continue;
+    marked.delete(threadId);
+    setRowStatus(threadId, null);
+  }
+  for (const threadId of up) {
+    if (marked.has(threadId)) continue;
+    marked.add(threadId);
+    setRowStatus(threadId, RUN_MARK);
+  }
+}
+
+function RunWatch() {
+  const sdk = useSdk();
+  useEffect(() => {
+    let stopped = false;
+    const check = async (threadIds: readonly string[]) => {
+      const found = await runningRuns(sdk, threadIds);
+      if (stopped) return;
+      runs = [
+        ...runs.filter((session) => !threadIds.includes(session.threadId)),
+        ...found.flatMap((session) => (session.threadId === null ? [] : [{ terminalId: session.id, threadId: session.threadId, environmentId: session.environmentId }])),
+      ];
+      syncMarks();
+      for (const listener of runListeners) listener();
+    };
+    recheckRuns = check;
+    sdk.threads.list({}).then((threads) => check(threads.map((thread) => thread.id)), () => undefined);
+    const unsubscribe = sdk.subscribe({
+      event: "thread:changed",
+      callback: (event) => {
+        if (event.id !== undefined && event.changes.includes("terminals-changed")) void check([event.id]).catch(() => undefined);
+      },
+    });
+    return () => {
+      stopped = true;
+      unsubscribe();
+    };
+  }, [sdk]);
+  return null;
+}
+
+/** The Run terminals that are up in the workspace this thread belongs to. */
+function useRunsBeside(threadId: string): readonly RunSession[] {
+  const sdk = useSdk();
+  const all = useSyncExternalStore(
+    (listener) => {
+      runListeners.add(listener);
+      return () => runListeners.delete(listener);
+    },
+    () => runs,
+  );
+  const [environmentId, setEnvironmentId] = useState<string | null>(null);
+  useEffect(() => {
+    if (threadId === "") return;
+    sdk.threads.get({ threadId }).then((thread) => setEnvironmentId(thread.environmentId), () => undefined);
+  }, [sdk, threadId]);
+  return useMemo(
+    () => all.filter((session) => session.threadId === threadId || (environmentId !== null && session.environmentId === environmentId)),
+    [all, environmentId, threadId],
+  );
 }
 
 type Rpc = ReturnType<typeof useRpc<typeof rpcContract>>;
@@ -137,6 +276,8 @@ const KIND_LABEL: Record<InboxEntry["kind"], string> = {
 
 function InboxCard({ entry, ticket, title, rpc, run }: { entry: InboxEntry; ticket: string | null; title: string | null; rpc: Rpc; run: (work: Promise<unknown>) => void }) {
   const navigate = useBbNavigate();
+  const sdk = useSdk();
+  const running = useRunsBeside(entry.threadId);
   const [answer, setAnswer] = useState("");
   const send = (event: FormEvent) => {
     event.preventDefault();
@@ -204,6 +345,18 @@ function InboxCard({ entry, ticket, title, rpc, run }: { entry: InboxEntry; tick
         {entry.kind === "failed" ? (
           <Button type="button" size="sm" variant="outline" onClick={() => run(rpc.call("retry", { entryId: entry.id }))}>
             Retry
+          </Button>
+        ) : null}
+        {entry.threadId !== "" && (entry.kind === "todo" || entry.kind === "test" || entry.kind === "check") ? (
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            className="h-10 flex-1 sm:h-8 sm:flex-none"
+            data-testid="inbox-run"
+            onClick={() => run(running.length > 0 ? stopRuns(sdk, running) : runInWorkspace(sdk, navigate, entry.threadId))}
+          >
+            {running.length > 0 ? "Stop" : "Run"}
           </Button>
         ) : null}
         {entry.threadId === "" ? null : (
@@ -666,6 +819,22 @@ function useInboxBadge() {
 
 export default definePluginApp((app) => {
   app.slots.experimental_appOverlay({ id: "inbox-chime", component: InboxChime });
+  app.slots.experimental_appOverlay({ id: "run-watch", component: RunWatch });
+  app.contentScripts.register({
+    id: "run-marks",
+    mount(context) {
+      const setter = context.experimental_setThreadRowStatus;
+      if (setter === undefined) return;
+      setRowStatus = setter;
+      syncMarks();
+      return () => {
+        if (setRowStatus !== setter) return;
+        for (const threadId of marked) setter(threadId, null);
+        marked.clear();
+        setRowStatus = null;
+      };
+    },
+  });
   app.slots.navPanel({
     id: "factory",
     title: "Factory",

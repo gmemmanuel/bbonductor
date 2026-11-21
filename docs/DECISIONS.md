@@ -11,6 +11,14 @@ What Gideon has decided about the factory, newest first. Check here before re-op
 
 ---
 
+## 20 November 2026 (run from the inbox)
+
+**A to-do, a test or a "try before it ships" entry has a Run button that starts the project's Run command in that ticket's workspace.** It becomes Stop while that workspace is running. (Founder)
+
+**The sidebar marks a workspace while its Run command is up**, not only while an agent is working. (Founder: "no indicator on a workspace when it's running like in Conductor")
+
+**The Run command stays in the project's `.conductor/settings.toml`.** The Factory reads it and does not keep its own copy. (Agent)
+
 ## 20 November 2026 (clearer asks)
 
 **An inbox entry shows the ticket title on its own line, then the ask.** A to-do or a test never shows options. No branch names or history of earlier requests in what he reads. (Founder)
