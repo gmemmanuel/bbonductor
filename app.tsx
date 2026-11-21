@@ -17,6 +17,7 @@ import type { FactoryState, rpcContract } from "./server";
 import type { Attachment, Config, InboxEntry, Item, Role } from "./src/factory/model";
 import { RUN_SETTINGS_FILE, RUN_TERMINAL_TITLE, parseRunCommand } from "./src/factory/runScript";
 import { Button } from "@/components/ui/button";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
 
 const CHANGED = "factory-changed";
@@ -407,13 +408,53 @@ const KIND_LABEL: Record<InboxEntry["kind"], string> = {
   todo: "To do",
 };
 
-/** The inbox in the order he should read it: what only he can decide, what to try, what to do, what broke. */
-const GROUPS: { id: string; title: string; kinds: InboxEntry["kind"][]; accent: string }[] = [
-  { id: "decide", title: "Decisions", kinds: ["question", "interaction"], accent: "border-l-sky-500" },
-  { id: "try", title: "Try it", kinds: ["check", "test"], accent: "border-l-emerald-500" },
-  { id: "do", title: "To do", kinds: ["todo"], accent: "border-l-amber-500" },
-  { id: "fix", title: "Needs attention", kinds: ["stalled", "failed", "blocked"], accent: "border-l-red-500" },
+/**
+ * The inbox is two columns. Left: what only he can decide or do, and anything
+ * that broke. Right: work to try before it is released, and work already out.
+ */
+const COLUMNS: { id: string; title: string; empty: string; kinds: InboxEntry["kind"][] }[] = [
+  { id: "decide", title: "Decide and do", empty: "Nothing to decide or do.", kinds: ["question", "interaction", "todo", "stalled", "failed", "blocked"] },
+  { id: "try", title: "Try before release", empty: "Nothing waiting to be tried.", kinds: ["check", "test"] },
 ];
+
+const ACCENT: Record<InboxEntry["kind"], string> = {
+  question: "border-l-sky-500",
+  interaction: "border-l-sky-500",
+  todo: "border-l-amber-500",
+  check: "border-l-emerald-500",
+  test: "border-l-emerald-500/40",
+  stalled: "border-l-red-500",
+  failed: "border-l-red-500",
+  blocked: "border-l-red-500",
+};
+
+/** The few words on a card that say what kind of step this is. */
+const STEP: Record<InboxEntry["kind"], string> = {
+  question: "Decide",
+  interaction: "Answer in the thread",
+  todo: "To do",
+  check: "Not released yet",
+  test: "Already released",
+  stalled: "Stopped",
+  failed: "Failed",
+  blocked: "Blocked",
+};
+
+/** One plain line from an entry's context: what changed, or how it starts. */
+function gist(entry: InboxEntry): string {
+  const text = entry.context.replace(/\r/g, "");
+  const now = /\*\*Now:\*\*\s*([^\n]+)/.exec(text) ?? /(?:^|\n)Now:\s*([^\n]+)/.exec(text);
+  const line = (now?.[1] ?? text.split("\n").find((part) => part.trim() !== "" && !part.startsWith("**Steps")) ?? "").replace(/\*\*/g, "").trim();
+  return line.replace(/^(Before|Why|Now):\s*/, "");
+}
+
+/** What he is asked to do, without the ticket's name said again. */
+function ask(entry: InboxEntry, ticket: string | null, title: string | null): string {
+  if (entry.kind === "check") return gist(entry) || "Try it on your phone.";
+  let text = entry.question;
+  if (ticket !== null && title !== null) text = text.replace(`${ticket} (${title}) `, "").replace(`${ticket} (${title})`, "");
+  return text.replace(/^Try (?=[A-Z])/, "").replace(/ \(already on main\)$/, "");
+}
 
 function ago(time: number): string {
   const minutes = Math.max(0, Math.round((Date.now() - time) / 60000));
@@ -445,25 +486,46 @@ function TicketLink({ url, ticket }: { url: string | null; ticket: string }) {
   );
 }
 
-/** Long context starts folded, so every card opens at a glance and none buries the next. */
-function Context({ text }: { text: string }) {
-  const long = text.length > 700 || text.split("\n").length > 14;
-  const [open, setOpen] = useState(false);
-  if (!long) return <Markdown content={text} className="text-sm" />;
+/** Two lines at most, then an ellipsis. Written out because the plugin's stylesheet has no line-clamp utility. */
+const CLAMP_TWO = { display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" } as const;
+
+/** The small card: whose ticket, what kind of step, and the step itself. Everything else is behind a click. */
+function InboxTile({ entry, ticket, title, onOpen }: { entry: InboxEntry; ticket: string | null; title: string | null; onOpen: () => void }) {
+  const main = ask(entry, ticket, title);
+  const hint = entry.kind === "check" ? "" : gist(entry);
+  const steps = (entry.context.match(/\n- /g) ?? []).length;
+  const drafted = !isBlank(readDraft(entry.id));
   return (
-    <div>
-      <div className={cn("relative", open ? "" : "max-h-44 overflow-hidden")}>
-        <Markdown content={text} className="text-sm" />
-        {open ? null : <div className="pointer-events-none absolute inset-x-0 bottom-0 h-12 bg-gradient-to-t from-card to-transparent" />}
-      </div>
-      <button type="button" className="mt-1 text-xs font-medium text-muted-foreground underline hover:text-foreground" onClick={() => setOpen(!open)}>
-        {open ? "Show less" : "Show all"}
+    <li>
+      <button
+        type="button"
+        data-testid="inbox-tile"
+        className={cn("block w-full space-y-1.5 rounded-lg border border-l-[3px] border-border bg-card px-3.5 py-3 text-left transition-colors hover:bg-secondary/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring", ACCENT[entry.kind])}
+        onClick={onOpen}
+      >
+        <span className="flex items-center gap-2 text-xs text-muted-foreground">
+          <span className="font-mono font-medium text-foreground">{ticket ?? entry.from}</span>
+          <span className="min-w-0 flex-1 truncate">{title ?? ""}</span>
+          <span className="shrink-0" title={new Date(entry.createdAt).toLocaleString()}>
+            {ago(entry.createdAt)}
+          </span>
+        </span>
+        <span className="text-sm font-medium leading-snug" style={CLAMP_TWO}>{main}</span>
+        {hint === "" || hint === main ? null : <span className="block truncate text-xs text-muted-foreground">{hint}</span>}
+        <span className="flex flex-wrap items-center gap-1.5 text-[11px] text-muted-foreground">
+          <span className="font-medium uppercase tracking-wide">{STEP[entry.kind]}</span>
+          {entry.options.length === 0 ? null : <span>· {entry.options.length} options</span>}
+          {steps === 0 ? null : <span>· {steps} steps</span>}
+          {drafted ? <span className="rounded bg-secondary px-1.5 py-0.5 text-secondary-foreground">Draft</span> : null}
+        </span>
       </button>
-    </div>
+    </li>
   );
 }
 
-function InboxCard({ entry, ticket, title, link, accent, rpc, run }: { entry: InboxEntry; ticket: string | null; title: string | null; link: string | null; accent: string; rpc: Rpc; run: (work: Promise<unknown>) => void }) {
+/** Everything about one entry: the full text, the reply box and every action. Shown in a pop-up. */
+function InboxCard({ entry, ticket, title, rpc, run }: { entry: InboxEntry; ticket: string | null; title: string | null; rpc: Rpc; run: (work: Promise<unknown>) => void }) {
+  const [confirmShip, setConfirmShip] = useState(false);
   const navigate = useBbNavigate();
   const sdk = useSdk();
   const running = useRunsBeside(entry.threadId);
@@ -527,18 +589,9 @@ function InboxCard({ entry, ticket, title, link, accent, rpc, run }: { entry: In
   };
   const urgent = entry.kind === "failed" || entry.kind === "stalled";
   return (
-    <li className={cn("space-y-3 rounded-lg border border-l-[3px] border-border bg-card px-4 py-3.5", accent)} data-testid="inbox-entry">
-      <div className="flex items-center gap-2 text-xs text-muted-foreground">
-        {ticket === null ? <span className="font-medium text-foreground">{entry.from}</span> : <span className="font-mono text-sm font-medium text-foreground">{ticket}</span>}
-        {title === null ? null : <span className="min-w-0 flex-1 truncate">{title}</span>}
-        {title === null ? <span className="flex-1" /> : null}
-        <span className="shrink-0" title={new Date(entry.createdAt).toLocaleString()}>
-          {KIND_LABEL[entry.kind]} · {ago(entry.createdAt)}
-        </span>
-        {ticket === null ? null : <TicketLink url={link} ticket={ticket} />}
-      </div>
-      <p className="text-base font-semibold leading-snug">{entry.question}</p>
-      {entry.context === "" ? null : <Context text={entry.context} />}
+    <div className="space-y-3" data-testid="inbox-entry">
+      {entry.kind === "check" ? null : <p className="text-base font-semibold leading-snug">{ask(entry, ticket, title)}</p>}
+      {entry.context === "" ? null : <Markdown content={entry.context} className="text-sm" />}
       {entry.options.length === 0 ? null : (
         <div className="flex flex-col items-stretch gap-1.5 sm:items-start">
           {entry.options.map((option, index) => (
@@ -612,8 +665,20 @@ function InboxCard({ entry, ticket, title, link, accent, rpc, run }: { entry: In
           </>
         )}
         {entry.kind === "check" ? (
-          <Button type="button" size="sm" className="h-10 flex-1 sm:h-8 sm:flex-none" onClick={() => run(rpc.call("approve", { entryId: entry.id }))}>
-            Approve and ship
+          // Shipping takes two presses, so a stray click cannot release anything.
+          <Button
+            type="button"
+            size="sm"
+            variant={confirmShip ? "destructive" : "default"}
+            className="h-10 flex-1 sm:h-8 sm:flex-none"
+            data-testid="inbox-approve"
+            onClick={() => {
+              if (confirmShip) run(rpc.call("approve", { entryId: entry.id }));
+              else setConfirmShip(true);
+            }}
+            onBlur={() => setConfirmShip(false)}
+          >
+            {confirmShip ? "Press again to ship" : "Approve and ship"}
           </Button>
         ) : null}
         {entry.kind === "failed" ? (
@@ -643,7 +708,7 @@ function InboxCard({ entry, ticket, title, link, accent, rpc, run }: { entry: In
           Dismiss
         </Button>
       </form>
-    </li>
+    </div>
   );
 }
 
@@ -1053,36 +1118,51 @@ const Loading = ({ error }: { error: string | null }) => <div className="p-5 tex
 
 function InboxPage() {
   const { rpc, state, error, run } = useFactory();
+  const [openId, setOpenId] = useState<string | null>(null);
   if (state === null) return <Loading error={error} />;
-  const groups = GROUPS.map((group) => ({ ...group, entries: state.inbox.filter((entry) => group.kinds.includes(entry.kind)) })).filter((group) => group.entries.length > 0);
+  const itemOf = (entry: InboxEntry) => state.items.find((candidate) => candidate.id === entry.itemId);
+  // An entry that was answered, approved or dismissed is gone, and its pop-up with it.
+  const open = state.inbox.find((entry) => entry.id === openId) ?? null;
+  const openItem = open === null ? undefined : itemOf(open);
   return (
-    <Page title="Inbox" width="max-w-3xl" error={error} aside={<span className="text-sm text-muted-foreground">{state.inbox.length === 0 ? "" : `${state.inbox.length} waiting`}</span>}>
-      {groups.length === 0 ? <Empty>Nothing needs you.</Empty> : null}
-      {groups.map((group) => (
-        <section key={group.id} className="space-y-2" data-testid={`inbox-group-${group.id}`}>
-          <h2 className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-            {group.title}
-            <span className="rounded-full bg-secondary px-1.5 py-0.5 text-[11px] font-medium tabular-nums text-secondary-foreground">{group.entries.length}</span>
-          </h2>
-          <ul className="space-y-3">
-            {group.entries.map((entry) => {
-              const item = state.items.find((candidate) => candidate.id === entry.itemId);
-              return (
-                <InboxCard
-                  key={entry.id}
-                  entry={entry}
-                  ticket={item?.key ?? null}
-                  title={item?.title ?? null}
-                  link={item === undefined ? null : ticketLink(state.config, item.key)}
-                  accent={group.accent}
-                  rpc={rpc}
-                  run={run}
-                />
-              );
-            })}
-          </ul>
-        </section>
-      ))}
+    <Page title="Inbox" width="max-w-5xl" error={error} aside={<span className="text-sm text-muted-foreground">{state.inbox.length === 0 ? "Nothing needs you" : `${state.inbox.length} waiting`}</span>}>
+      <div className="grid gap-6 lg:grid-cols-2">
+        {COLUMNS.map((column) => {
+          const entries = state.inbox.filter((entry) => column.kinds.includes(entry.kind));
+          return (
+            <section key={column.id} className="space-y-2" data-testid={`inbox-column-${column.id}`}>
+              <h2 className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                {column.title}
+                {entries.length === 0 ? null : <span className="rounded-full bg-secondary px-1.5 py-0.5 text-[11px] font-medium tabular-nums text-secondary-foreground">{entries.length}</span>}
+              </h2>
+              {entries.length === 0 ? (
+                <p className="rounded-lg border border-dashed border-border px-3.5 py-3 text-sm text-muted-foreground">{column.empty}</p>
+              ) : (
+                <ul className="space-y-2">
+                  {entries.map((entry) => (
+                    <InboxTile key={entry.id} entry={entry} ticket={itemOf(entry)?.key ?? null} title={itemOf(entry)?.title ?? null} onOpen={() => setOpenId(entry.id)} />
+                  ))}
+                </ul>
+              )}
+            </section>
+          );
+        })}
+      </div>
+      <Dialog open={open !== null} onOpenChange={(next) => (next ? undefined : setOpenId(null))}>
+        {open === null ? null : (
+          <DialogContent className="max-h-[88vh] w-full max-w-2xl overflow-y-auto" data-testid="inbox-dialog">
+            <DialogHeader>
+              <DialogTitle className="text-base">
+                {openItem === undefined ? open.from : `${openItem.key} · ${openItem.title}`}
+              </DialogTitle>
+              <DialogDescription>
+                {STEP[open.kind]} · {ago(open.createdAt)}
+              </DialogDescription>
+            </DialogHeader>
+            <InboxCard key={open.id} entry={open} ticket={openItem?.key ?? null} title={openItem?.title ?? null} rpc={rpc} run={run} />
+          </DialogContent>
+        )}
+      </Dialog>
     </Page>
   );
 }

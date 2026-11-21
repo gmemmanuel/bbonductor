@@ -118,6 +118,25 @@ async function runButtonChecks(entry) {
   try {
     const page = await browser.newPage({ viewport: { width: 1400, height: 900 } });
     await page.goto(`http://127.0.0.1:${PORT}/plugins/bbonductor/factory`);
+    // The inbox shows small cards; a card opens a pop-up with the whole entry.
+    const openTile = async (key) => {
+      await page.keyboard.press("Escape");
+      const tile = page.locator('[data-testid="inbox-tile"]').filter({ hasText: key });
+      await tile.waitFor({ timeout: 30_000 });
+      await tile.click();
+      await page.locator('[data-testid="inbox-entry"]').waitFor({ timeout: 15_000 });
+    };
+    const tiles = page.locator('[data-testid="inbox-tile"]');
+    await tiles.first().waitFor({ timeout: 30_000 });
+    await page.screenshot({ path: join(work, "page-inbox.png") });
+    check(
+      "the inbox is two columns of small cards with no actions on them",
+      (await page.locator('[data-testid="inbox-column-try"] [data-testid="inbox-tile"]').count()) === 1 &&
+        (await page.locator('[data-testid="inbox-column-decide"] [data-testid="inbox-tile"]').count()) === 1 &&
+        (await page.getByRole("button", { name: "Approve and ship" }).count()) === 0,
+    );
+    await openTile("LIVE-1");
+    await page.screenshot({ path: join(work, "page-inbox-open.png") });
     const button = page.locator('[data-testid="inbox-run"]').first();
     await button.waitFor({ timeout: 30_000 });
     await button.click();
@@ -142,8 +161,12 @@ async function runButtonChecks(entry) {
     check("the button reads Run again", runLabel);
 
     // --- the other two pages
-    await page.screenshot({ path: join(work, "page-inbox.png"), fullPage: false });
-    check("the inbox groups entries by what they ask of him", (await page.locator('[data-testid="inbox-group-try"]').count()) === 1 && (await page.locator('[data-testid="inbox-group-fix"]').count()) === 1);
+    // Shipping takes two presses.
+    const approve = page.locator('[data-testid="inbox-approve"]');
+    await approve.click();
+    const asksAgain = (await approve.innerText()).includes("Press again") && Boolean(status().inbox.find((e) => e.id === entry.id));
+    check("one press on Approve and ship releases nothing; it asks for a second", asksAgain);
+    await page.keyboard.press("Escape");
     await page.goto(`http://127.0.0.1:${PORT}/plugins/bbonductor/factory-lanes`);
     const lanes = await page.locator('[data-testid="lane"]').first().waitFor({ timeout: 30_000 }).then(() => true, () => false);
     await page.screenshot({ path: join(work, "page-lanes.png") });
@@ -159,11 +182,11 @@ async function runButtonChecks(entry) {
     const arrow = await page.locator('[data-testid="ticket-link"]:visible').first().waitFor({ timeout: 30_000 }).then(() => true, () => false);
     check("settings has its own page, and a ticket link set there puts an arrow on each ticket", arrow);
     await page.goto(`http://127.0.0.1:${PORT}/plugins/bbonductor/factory`);
-    await page.locator('[data-testid="inbox-entry"]').first().waitFor({ timeout: 30_000 });
+    await openTile("LIVE-1");
 
     // --- the reply box on that entry
     // The check waiting on the founder, wherever its group puts it on the page.
-    const gateCard = () => page.locator('[data-testid="inbox-entry"]').filter({ hasText: "Try it before it ships" });
+    const gateCard = () => page.locator('[data-testid="inbox-entry"]');
     const reply = gateCard().locator('[data-testid="inbox-reply"]');
     const oneLine = (await reply.boundingBox()).height;
     await reply.fill("The name is right.\nThe spacing under it is too tight.\nSee the picture.\nFourth line.");
@@ -174,6 +197,7 @@ async function runButtonChecks(entry) {
     const attached = await page.locator('[data-testid="inbox-attachments"]').getByText("shot.png").waitFor({ timeout: 15_000 }).then(() => true, () => false);
     check("a picture can be attached to the reply", attached);
     await page.reload();
+    await openTile("LIVE-1");
     const kept = await until(async () => ((await gateCard().locator('[data-testid="inbox-reply"]').inputValue().catch(() => "")).includes("spacing under it") ? true : null), 20_000);
     const keptFile = (await page.locator('[data-testid="inbox-attachments"]').getByText("shot.png").count()) > 0;
     check("the draft and its attachment survive leaving the page", kept === true && keptFile);
@@ -185,6 +209,7 @@ async function runButtonChecks(entry) {
     check("the thread shows what the founder was asked, above its composer", banner);
     await page.screenshot({ path: join(work, "draft-in-thread.png") });
     await page.goto(`http://127.0.0.1:${PORT}/plugins/bbonductor/factory`);
+    await openTile("LIVE-1");
     const again = gateCard().locator('[data-testid="inbox-reply"]');
     await again.waitFor({ timeout: 30_000 });
     check("the draft has moved, not been copied: the inbox box is empty again", (await again.inputValue()) === "");
@@ -192,6 +217,7 @@ async function runButtonChecks(entry) {
     // Answering from the inbox sends the words and the picture to the thread.
     // Done on the stalled entry, so the ticket under test stays where it is.
     const stalled = status().inbox.find((e) => e.kind === "stalled");
+    await openTile("LIVE-3");
     const card = page.locator('[data-testid="inbox-entry"]').filter({ hasText: stalled.question });
     await card.locator('[data-testid="inbox-reply"]').fill("Carry on from the last step.");
     await card.locator('[data-testid="inbox-attach-input"]').setInputFiles(join(work, "shot.png"));
