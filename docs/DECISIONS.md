@@ -11,6 +11,14 @@ What Gideon has decided about the factory, newest first. Check here before re-op
 
 ---
 
+## 21 November 2026 (inbox panel layout, swimlane columns)
+
+**The inbox panel is as wide as he drags it.** Its left edge drags left or right, and the width is remembered. Double-click the edge to reset. (Founder)
+
+**In the panel, Attach is a + left of Send, and Dismiss sits right of Send. Run and Open thread are pinned to the panel's bottom right.** This replaces the earlier rule that kept Dismiss on a row away from the main action; shipping still takes two presses, so Dismiss beside Send risks nothing irreversible. (Founder)
+
+**Swimlane columns read Track, Next up, In Progress, Done.** "Right now" became "In Progress" and moved between waiting and done work. (Founder)
+
 ## 21 November 2026 (inbox panel behaviour)
 
 **Dealing with an inbox entry opens the next one; the panel does not close.** The panel's open state belongs to the inbox page: it is as he left it when he returns, and shows nowhere else. (Founder)

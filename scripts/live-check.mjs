@@ -138,6 +138,43 @@ async function runButtonChecks(entry) {
     );
     await openTile("LIVE-1");
     await page.screenshot({ path: join(work, "page-inbox-open.png") });
+    // The reply row reads + | Send back | Dismiss; Run and Open thread sit at the panel's bottom right.
+    const panel = page.locator('[data-testid="inbox-panel"]');
+    const box = async (selector) => panel.locator(selector).first().boundingBox();
+    const rowOf = async () => {
+      const plus = await box('[data-testid="inbox-attach"]');
+      const sendBack = await panel.getByRole("button", { name: "Send back" }).boundingBox();
+      const dismiss = await box('[data-testid="inbox-dismiss"]');
+      const ok = plus.x < sendBack.x && sendBack.x < dismiss.x && Math.abs(plus.y + plus.height / 2 - (dismiss.y + dismiss.height / 2)) < 4;
+      return ok ? { ok, plus, sendBack, dismiss } : null;
+    };
+    const row = (await until(rowOf, 5_000)) ?? { ok: false, ...(await rowOf().catch(() => ({}))) };
+    const panelBox = await panel.boundingBox();
+    const runBox = await box('[data-testid="inbox-run"]');
+    const threadBox = await box('[data-testid="inbox-open-thread"]');
+    check(
+      "in the panel, + sits left of Send and Dismiss right of it, on one row",
+      row.ok,
+      JSON.stringify(row),
+    );
+    check(
+      "Run and Open thread are pinned to the panel's bottom right",
+      runBox.x < threadBox.x && panelBox.x + panelBox.width - (threadBox.x + threadBox.width) < 32 && panelBox.y + panelBox.height - (threadBox.y + threadBox.height) < 32,
+      JSON.stringify({ panelBox, runBox, threadBox }),
+    );
+    // The panel's left edge drags, and the width it is left at is kept.
+    const edge = await box('[data-testid="inbox-panel-resize"]');
+    await page.mouse.move(edge.x + edge.width / 2, edge.y + 200);
+    await page.mouse.down();
+    await page.mouse.move(edge.x + edge.width / 2 - 100, edge.y + 200, { steps: 5 });
+    await page.mouse.move(edge.x + edge.width / 2 - 200, edge.y + 200, { steps: 5 });
+    await page.mouse.up();
+    const wider = (await panel.boundingBox()).width;
+    await page.reload();
+    await panel.locator('[data-testid="inbox-entry"]').waitFor({ timeout: 30_000 });
+    const keptWidth = (await panel.boundingBox()).width;
+    check("dragging the panel's edge resizes it, and the width survives a reload", Math.abs(wider - panelBox.width - 200) < 6 && Math.abs(keptWidth - wider) < 2, `${panelBox.width} → ${wider} → ${keptWidth}`);
+    await page.screenshot({ path: join(work, "page-inbox-resized.png") });
     const button = page.locator('[data-testid="inbox-run"]').first();
     await button.waitFor({ timeout: 30_000 });
     await button.click();
@@ -172,6 +209,8 @@ async function runButtonChecks(entry) {
     const lanes = await page.locator('[data-testid="lane"]').first().waitFor({ timeout: 30_000 }).then(() => true, () => false);
     await page.screenshot({ path: join(work, "page-lanes.png") });
     check("swimlanes have their own page", lanes && (await page.locator('[data-testid="inbox-entry"]').count()) === 0);
+    const headers = (await page.locator("thead th").allInnerTexts()).map((text) => text.trim());
+    check("swimlane columns read Track, Next up, In Progress, Done", headers.join("|") === "Track|Next up|In Progress|Done", headers.join("|"));
     await page.goto(`http://127.0.0.1:${PORT}/plugins/bbonductor/factory-settings`);
     const url = page.locator('[data-testid="ticket-url"]');
     await url.waitFor({ timeout: 30_000 });
@@ -202,7 +241,7 @@ async function runButtonChecks(entry) {
     const kept = await until(async () => ((await gateCard().locator('[data-testid="inbox-reply"]').inputValue().catch(() => "")).includes("spacing under it") ? true : null), 20_000);
     const keptFile = (await page.locator('[data-testid="inbox-attachments"]').getByText("shot.png").count()) > 0;
     check("the draft and its attachment survive leaving the page", kept === true && keptFile);
-    await gateCard().locator('[data-testid="inbox-open-thread"]').click();
+    await page.locator('[data-testid="inbox-panel"] [data-testid="inbox-open-thread"]').click();
     const composer = page.getByText("The spacing under it is too tight.").first();
     const carried = await composer.waitFor({ timeout: 20_000 }).then(() => true, () => false);
     check("opening the thread brings the draft into its composer", carried && page.url().includes(entry.threadId), page.url());
