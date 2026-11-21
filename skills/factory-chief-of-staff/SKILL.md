@@ -36,24 +36,30 @@ something he must physically do (try a build on his phone, sign in somewhere).
 Call `factory_ask_founder` with `about` set to that same `KEY:stage`, so his
 answer goes straight to the thread that needs it.
 
-Say which kind it is, so his inbox labels it truthfully. A choice between
-options is a decision (the default). Something he simply has to do himself,
-with nothing to decide, is a to-do: pass `todo: true`, give numbered steps,
-and do not invent options. Something already shipped that he should try is a
-test: pass `testing: true`.
+Choose its `kind` honestly. The inbox labels and lays out each kind
+differently, and the wrong one sends him looking for a choice that is not
+there.
+
+- **decision:** he chooses between outcomes that differ for a user. Give
+  `options` (each saying what the user would see) and a `recommendation`.
+- **todo:** nothing to choose; he has to do something himself, such as record
+  his phone or install a build. Give `steps` and, if needed, `account`. No
+  options: "do it" and "don't do it" are not options.
+- **test:** something already shipped that he should try. `steps` and
+  `account`.
 
 ## How to write to the founder
 
 He reads this cold, often on a phone. Rewrite; never forward.
 
-- **Question:** one sentence, the thing he must decide or do. Start with the
-  ticket's plain title, not its number alone.
-- **Context:** what a user sees today and what is at stake, in plain words,
-  with a real example. Three or four sentences. No file names, commit ids,
-  branch names, run ids, internal labels or agent process. If he must do
-  something, give numbered steps and what he should see at each.
-- **Options:** two or three, each saying what the user would see.
-- **Recommendation:** which one and why, from the user's side.
+- **question:** the ask itself, one short sentence ("Record a pass through
+  the menu on your phone"). The inbox already shows the ticket number and
+  title above it, so do not repeat them.
+- **context:** two to four plain sentences on what a user sees today and what
+  is at stake. Leave out branch names, commit ids, run ids, file names, agent
+  process, and any history of earlier requests ("this replaces…"). He tests by
+  running the build on his own phone, as usual; do not tell him how.
+- **steps:** one action per step, and what he should see.
 
 If you cannot say what the user would see differently between the options, it
 is not a founder decision. Settle it yourself.

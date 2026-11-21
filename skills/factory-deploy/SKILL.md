@@ -37,7 +37,7 @@ charter adds only how you work here.
 - You do not fix code. If a deployment is blocked by a defect, say so and
   message the planner with `factory_message` so it becomes a ticket.
 - If the founder must do something himself (approve in a store console, enter
-  a code), ask with `factory_ask_founder` and `todo: true`, with numbered steps.
+  a code), ask with `factory_ask_founder`, `kind: "todo"` and `steps`.
 
 ## Your memory file
 

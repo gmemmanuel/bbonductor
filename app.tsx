@@ -135,7 +135,7 @@ const KIND_LABEL: Record<InboxEntry["kind"], string> = {
   todo: "To do",
 };
 
-function InboxCard({ entry, ticket, rpc, run }: { entry: InboxEntry; ticket: string | null; rpc: Rpc; run: (work: Promise<unknown>) => void }) {
+function InboxCard({ entry, ticket, title, rpc, run }: { entry: InboxEntry; ticket: string | null; title: string | null; rpc: Rpc; run: (work: Promise<unknown>) => void }) {
   const navigate = useBbNavigate();
   const [answer, setAnswer] = useState("");
   const send = (event: FormEvent) => {
@@ -160,7 +160,8 @@ function InboxCard({ entry, ticket, rpc, run }: { entry: InboxEntry; ticket: str
         <span className="text-muted-foreground">{entry.kind === "test" ? "Shipped" : ticket === null ? entry.from : entry.from.replace(` · ${ticket}`, "")}</span>
         <span className="text-muted-foreground">{new Date(entry.createdAt).toLocaleString()}</span>
       </div>
-      <p className="text-sm font-medium">{entry.question}</p>
+      {title === null ? null : <p className="text-xs text-muted-foreground">{title}</p>}
+      <p className="text-base font-semibold">{entry.question}</p>
       {entry.context === "" ? null : <Markdown content={entry.context} className="text-sm" />}
       {entry.options.length === 0 ? null : (
         <div className="flex flex-col items-stretch gap-1.5 sm:items-start">
@@ -623,7 +624,7 @@ function FactoryPage() {
           ) : (
             <ul className="space-y-2">
               {inbox.map((entry) => (
-                <InboxCard key={entry.id} entry={entry} ticket={state.items.find((item) => item.id === entry.itemId)?.key ?? null} rpc={rpc} run={run} />
+                <InboxCard key={entry.id} entry={entry} ticket={state.items.find((item) => item.id === entry.itemId)?.key ?? null} title={state.items.find((item) => item.id === entry.itemId)?.title ?? null} rpc={rpc} run={run} />
               ))}
             </ul>
           )}
