@@ -25,6 +25,12 @@ In rough order.
 
 ## Log
 
+### 20 November 2026 (seventh session): labels, deployer, Codex instruction limit
+
+- Inbox kinds `test` (Try on main) and `todo` (To do); `bb factory retag`. Standing Deployer. The agents' workspace is named "Agents".
+- **Codex was reading 60% of Justus's instructions** (32 KB cap against a 54 KB file). Raised the cap in the founder's Codex settings.
+- **Held, not built:** skipping the chime and push for a thread the founder is in. He wants to live with the current pings first, because a branch's reply often comes back through the chief of staff as a new inbox entry. A working version (client focus plus `experimental_thread.read`) was written and discarded; rebuild from this note if he asks.
+
 ### 20 November 2026 (sixth session): inbox chime
 
 - The six open inbox entries were resent in the new format at the founder's request (stage threads re-reported; the chief of staff rewrote one).

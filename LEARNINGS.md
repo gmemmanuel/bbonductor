@@ -56,6 +56,8 @@ Non-obvious decisions and process knowledge for agents working on the Factory pl
 
 - **Standing agents share one workspace, and bb's Conductor layout titles a workspace by its first chat.** All of them run in the main checkout, so the row read "Chief of staff" for every agent. The factory names that environment "Agents" (`environments.update({ name })`), and the local copy of the layout shows an environment's name when it has one.
 
+- **Codex silently truncates project instructions at 32 KB.** Justus's `AGENTS.md` is about 54 KB, so every Codex builder and shipper read only the first 60%: everything from "Canonical Planning Vault" on (review lanes, working rules, verification, chat safety) was missing. Codex prints one line about it per turn. Raised `project_doc_max_bytes` to 131072 in `~/.codex/config.toml` (backup in `~/.bb-backups/`). Claude Code has no such cap. Check instruction size against each provider's limit when adding a provider.
+
 ## Testing
 
 - **The fake plugin host proves the rules; only real bb proves the wiring.** Run both. The live check starts bb with its own data folder and ports, so it never touches `~/.bb`.
