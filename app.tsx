@@ -23,6 +23,7 @@ const CHANGED = "factory-changed";
 const PROJECT_KEY = "bbonductor.factory.project";
 const INBOX_ARRIVED = "factory-inbox-arrived";
 const CHIME_KEY = "bbonductor.factory.chime";
+const OPEN_KEY = "bbonductor.factory.inbox.open";
 
 /**
  * Two soft, falling bell notes, like a station announcement chime. Made with
@@ -1101,14 +1102,34 @@ const Loading = ({ error }: { error: string | null }) => <div className="p-5 tex
 
 function InboxPage() {
   const { rpc, state, error, run } = useFactory();
-  const [openId, setOpenId] = useState<string | null>(null);
+  // Which entry is open is remembered for this page alone, so the panel is
+  // as he left it when he comes back from a thread or another page.
+  const [openId, setOpen] = useState<string | null>(() => (typeof localStorage === "undefined" ? null : localStorage.getItem(OPEN_KEY)));
+  const setOpenId = useCallback((id: string | null) => {
+    if (id === null) localStorage.removeItem(OPEN_KEY);
+    else localStorage.setItem(OPEN_KEY, id);
+    setOpen(id);
+  }, []);
+  // The inbox in reading order, as last drawn: when the open entry is dealt
+  // with, the panel moves to the one after it instead of closing.
+  const order = useRef<string[]>([]);
+  const ids = state === null ? null : COLUMNS.flatMap((column) => state.inbox.filter((entry) => column.kinds.includes(entry.kind)).map((entry) => entry.id));
+  useEffect(() => {
+    if (ids === null) return;
+    if (openId !== null && !ids.includes(openId)) {
+      const was = order.current.indexOf(openId);
+      const after = was === -1 ? [] : [...order.current.slice(was + 1), ...order.current.slice(0, was).reverse()];
+      setOpenId(after.find((id) => ids.includes(id)) ?? null);
+    }
+    order.current = ids;
+  }, [ids?.join("|"), openId, setOpenId]);
   useEffect(() => {
     const onKey = (event: globalThis.KeyboardEvent) => {
       if (event.key === "Escape") setOpenId(null);
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, []);
+  }, [setOpenId]);
   if (state === null) return <Loading error={error} />;
   const itemOf = (entry: InboxEntry) => state.items.find((candidate) => candidate.id === entry.itemId);
   // An entry that was answered, approved or dismissed is gone, and its panel with it.

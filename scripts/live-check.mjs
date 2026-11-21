@@ -226,6 +226,14 @@ async function runButtonChecks(entry) {
     await page.screenshot({ path: join(work, "reply-box.png") });
     await card.getByRole("button", { name: "Send", exact: true }).click();
     const delivered = await until(() => (lastMessage(stalled.threadId).includes("Carry on from the last step.") ? true : null));
+    // Dealing with one entry moves the panel to the next; it does not close.
+    const moved = await page.locator('[data-testid="inbox-panel"]').getByText("First in lane").first().waitFor({ timeout: 15_000 }).then(() => true, () => false);
+    check("after an answer is sent the panel shows the next entry", moved);
+    await page.goto(`http://127.0.0.1:${PORT}/plugins/bbonductor/factory-lanes`);
+    const elsewhere = (await page.locator('[data-testid="inbox-panel"]').count()) === 0;
+    await page.goto(`http://127.0.0.1:${PORT}/plugins/bbonductor/factory`);
+    const back = await page.locator('[data-testid="inbox-panel"]').getByText("First in lane").first().waitFor({ timeout: 30_000 }).then(() => true, () => false);
+    check("the panel is still open on returning to the inbox, and is not shown on other pages", elsewhere && back);
     check("an answer with a picture attached reaches the thread", delivered === true && !status().inbox.some((e) => e.id === stalled.id), bb(["thread", "log", stalled.threadId]).slice(-600));
   } finally {
     await browser.close();
