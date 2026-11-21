@@ -34,7 +34,7 @@ function setup() {
   const renamed: { environmentId: string; name: string }[] = [];
   let failSpawn = false;
   /** Who started each thread's latest turn. */
-  const lastTurn = new Map<string, "user" | "agent">();
+  const lastTurn = new Map<string, "user" | "agent" | "plugin">();
   const host = createFakePluginHost({
     pluginId: "bbonductor",
     agentSkillIds: ["factory", "factory-orchestrator", "factory-issue-owner", "factory-deploy", "factory-harness-improver", "factory-watch"],
@@ -65,7 +65,9 @@ function setup() {
         },
         events: {
           list: async (args: { threadId: string }) =>
-            lastTurn.has(args.threadId) ? [{ type: "client/turn/requested", createdAt: Date.now(), data: { initiator: lastTurn.get(args.threadId), senderThreadId: null } }] : [],
+            lastTurn.has(args.threadId)
+              ? [{ type: "client/turn/requested", createdAt: Date.now(), data: { initiator: lastTurn.get(args.threadId) === "agent" ? "agent" : "user", senderThreadId: null, originPluginId: lastTurn.get(args.threadId) === "plugin" ? "bbonductor" : null } }]
+              : [],
         },
         send: async (args: { threadId: string; input: { text: string }[]; senderThreadId?: string }) => {
           lastTurn.set(args.threadId, "agent");
@@ -137,6 +139,7 @@ function setup() {
     tool,
     emit,
     founderTypes,
+    pluginTurn: (threadId: string) => lastTurn.set(threadId, "plugin"),
     item,
     breakSpawn: (broken: boolean) => (failSpawn = broken),
   };
@@ -454,7 +457,11 @@ describe("a ticket's issue owner fields everything about it", () => {
     expect((await t.state()).inbox).toHaveLength(1);
     await t.founderTypes("th_2");
     expect((await t.state()).inbox).toHaveLength(1);
-    // A turn an agent's message started is not his answer.
+    // A turn an agent's message started is not his answer, and neither is one
+    // a plugin started, which bb records as the user's.
+    await t.emit("thread.active", "th_1");
+    expect((await t.state()).inbox).toHaveLength(1);
+    t.pluginTurn("th_1");
     await t.emit("thread.active", "th_1");
     expect((await t.state()).inbox).toHaveLength(1);
     await t.founderTypes("th_1");

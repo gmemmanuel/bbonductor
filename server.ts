@@ -265,8 +265,10 @@ export default async function plugin(bb: BbPluginApi) {
       // A turn the founder started himself answers what the thread asked him.
       if (!engine.awaitingFounder(thread.id)) return;
       const [latest] = await bb.sdk.threads.events.list({ threadId: thread.id, types: ["client/turn/requested"], order: "desc", limit: "1" });
-      const request = latest as { createdAt?: number; data?: { initiator?: string; senderThreadId?: string | null } } | undefined;
-      if (request?.data?.initiator !== "user" || request.data.senderThreadId != null) return;
+      // A thread's opening prompt is recorded as the user's even when a plugin
+      // spawned it, so "no plugin behind it" is part of the test.
+      const request = latest as { createdAt?: number; data?: { initiator?: string; senderThreadId?: string | null; originPluginId?: string | null } } | undefined;
+      if (request?.data?.initiator !== "user" || request.data.senderThreadId != null || request.data.originPluginId != null) return;
       await engine.onFounderMessage(thread.id, request.createdAt);
     });
   });
