@@ -54,6 +54,8 @@ export interface Effects {
   environmentOf(threadId: string): Promise<string | null>;
   /** Unpin a standing agent's thread once a fresh one replaces it. Must not throw. */
   unpin(threadId: string): void;
+  /** Give a workspace a new name in bb's sidebar. Best effort. */
+  renameWorkspace(environmentId: string, name: string): void;
   /** True while bb still shows an unanswered question or approval on the thread. */
   hasPendingInteraction(threadId: string): Promise<boolean>;
   /** Best-effort push notification. Must not throw. */
@@ -808,6 +810,51 @@ export class FactoryEngine {
       this.store.saveItem({ ...item, ownerNote: note.trim() });
       this.effects.changed();
       return "Saved. It comes back to you with everything the factory hands you about this ticket.";
+    });
+  }
+
+  /**
+   * Follow-up work on a ticket that shipped, under a new ticket. The owner
+   * keeps its thread and the workspace: both move to the new ticket, which
+   * starts at the builder with the owner's handoff. The shipped ticket leaves
+   * the board, so nothing shows as done and in progress at once.
+   */
+  followUp(threadId: string, input: { key: string; title: string; handoff: string }): Promise<Item> {
+    return this.exclusive(async () => {
+      const shipped = this.ownedBy(threadId);
+      if (shipped === null) throw new FactoryError("Only a ticket's issue owner can continue it under a new ticket.");
+      if (shipped.status !== "done") {
+        throw new FactoryError(`${shipped.key} has not shipped (it is ${shipped.status}). Send its builder the work with factory_message instead.`);
+      }
+      const key = input.key.trim();
+      const existing = this.store.findItemByKey(shipped.projectId, key);
+      if ((existing !== null && !CLOSED.has(existing.status)) || this.hostOf(shipped.projectId, key) !== null) {
+        throw new FactoryError(`${key} is already in the factory.`);
+      }
+      // The plan is the owner's handoff, so the new ticket starts after the
+      // owner's own stage: the pipeline that is the shipped one without it.
+      const config = this.store.getConfig(shipped.projectId);
+      const stages = config.pipelines[shipped.pipeline] ?? [];
+      const rest = stages.slice(stages.findIndex((stageId) => config.stages[stageId]?.owner === true) + 1);
+      const pipeline = Object.keys(config.pipelines).find((name) => config.pipelines[name]!.join("|") === rest.join("|"));
+      if (pipeline === undefined || rest.length === 0) {
+        throw new FactoryError(`No pipeline continues ${shipped.key} from its builder. Queue ${key} with factory_enqueue instead.`);
+      }
+      const workspace = await this.workspaceOf(shipped);
+      const created = this.newItem(shipped.projectId, { key, title: input.title.trim(), brief: input.handoff.trim() }, shipped.lane, pipeline, {
+        tier: shipped.tier,
+        originThreadId: threadId,
+      });
+      this.closeEntriesFor(shipped.id);
+      this.store.saveItem({ ...shipped, status: "archived" });
+      this.store.bindThread({ threadId, itemId: created.id, stage: null, agentId: null, projectId: shipped.projectId });
+      if (workspace !== null) this.effects.renameWorkspace(workspace, key);
+      const started = await this.runStage(
+        { ...created, position: shipped.position, environmentId: workspace, ownerThreadId: threadId, ownerNote: shipped.ownerNote },
+        config,
+      );
+      this.effects.changed();
+      return started;
     });
   }
 

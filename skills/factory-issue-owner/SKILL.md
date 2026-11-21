@@ -32,6 +32,10 @@ Work out what should change and plan it to the project's standard, then send
 the builder the work with `factory_message` to `KEY:build` (the message tells
 you the exact stage). The ticket goes back to that stage when you do, and
 comes back to him to try when it is done. Do not write the code yourself.
+If the ticket has already shipped and the follow-up has a ticket of its own,
+call `factory_follow_up` with the new key, its title and your handoff. The
+workspace and this thread move to the new ticket and a builder starts on your
+handoff; do not start a new workspace or a builder yourself.
 If nothing should change, call `factory_stage_done` with outcome `complete`
 and say why in one or two plain sentences; his check goes back to him with
 your reason.
