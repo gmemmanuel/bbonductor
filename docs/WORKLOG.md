@@ -27,6 +27,11 @@ In rough order.
 
 ## Log
 
+### 21 November 2026 (fourth session): inbox cards
+
+- Inbox rebuilt as two columns of small cards that open a pop-up with the whole entry; shipping takes two presses. The check's question no longer repeats the ticket's name.
+- **Checked:** 73 behaviour tests, 56 live checks, screenshots. **Not checked:** the pop-up on a phone.
+
 ### 21 November 2026 (third session): CTO, Observer, the daily tester review
 
 - **Renamed** the planner to CTO and Watch to Observer (labels and thread titles; ids unchanged). The inbox has its own sidebar icon.

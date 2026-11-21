@@ -537,7 +537,7 @@ export class FactoryEngine {
         threadId: this.ownerThread(item) ?? item.threads[stages[item.stageIndex] ?? ""] ?? "",
         kind: "check",
         from: `Founder testing · ${item.key}`,
-        question: `${item.key} (${item.title}) is built and reviewed. Try it before it ships.`,
+        question: "Built and reviewed. Try it before it ships.",
         context: [ownerSays === "" ? "" : `**From the issue owner:** ${ownerSays}`, item.founderCheck.text].filter((part) => part !== "").join("\n\n"),
       });
       return held;

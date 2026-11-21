@@ -11,6 +11,14 @@ What Gideon has decided about the factory, newest first. Check here before re-op
 
 ---
 
+## 21 November 2026 (inbox cards)
+
+**The inbox is two columns of small cards: "Decide and do" and "Try before release".** A card shows the ticket, his step and one line; clicking it opens a pop-up with the full text, the reply box and every action. No ticket link on inbox cards, and nothing said twice. (Founder: "still just kind of a big old wall of text")
+
+**Approve and ship takes two presses, and only inside the pop-up.** He shipped JUS-1009 by accident from a card. (Agent, after that)
+
+This replaces the single grouped column decided earlier the same day.
+
 ## 21 November 2026 (CTO and Observer)
 
 **The planner is the CTO and Watch is the Observer.** (Founder)
