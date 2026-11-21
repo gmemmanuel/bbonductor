@@ -7,7 +7,7 @@ import type { Config } from "./model.js";
 export const DEFAULT_CONFIG: Config = {
   roles: {
     orchestrator: {
-      label: "Planner / strategist",
+      label: "CTO",
       providerId: "",
       model: "",
       reasoningLevel: "",
@@ -87,7 +87,7 @@ export const DEFAULT_CONFIG: Config = {
       fallbackReasoningLevel: "",
     },
     watch: {
-      label: "Watch",
+      label: "Observer",
       providerId: "",
       model: "",
       reasoningLevel: "",
@@ -181,7 +181,7 @@ export const DEFAULT_CONFIG: Config = {
   maxActiveItems: 8,
   agents: {
     orchestrator: {
-      label: "Planner / strategist",
+      label: "CTO",
       role: "orchestrator",
       skill: "factory-orchestrator",
       memoryPath: "docs/agents/orchestrator/MEMORY.md",
@@ -193,7 +193,7 @@ export const DEFAULT_CONFIG: Config = {
       memoryPath: "docs/agents/deploy/MEMORY.md",
     },
     watch: {
-      label: "Watch",
+      label: "Observer",
       role: "watch",
       skill: "factory-watch",
       memoryPath: "docs/agents/watch/MEMORY.md",

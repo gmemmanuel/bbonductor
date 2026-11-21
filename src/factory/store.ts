@@ -261,6 +261,14 @@ function withNewDefaults(saved: Config): Config {
       stages: Object.fromEntries(Object.entries(config.stages).map(([id, stage]) => [id, id === "plan-review" || id === "fix" ? { ...stage, owner: true } : stage])),
     };
   }
+  // The planner is the CTO and Watch is the Observer (founder, 21 November),
+  // wherever the earlier default name is still in place.
+  const renamedAgents: Record<string, [string, string]> = { orchestrator: ["Planner / strategist", "CTO"], watch: ["Watch", "Observer"] };
+  const relabel = <T extends { label: string }>(entries: Record<string, T>): Record<string, T> =>
+    Object.fromEntries(Object.entries(entries).map(([id, entry]) => [id, renamedAgents[id] !== undefined && entry.label === renamedAgents[id][0] ? { ...entry, label: renamedAgents[id][1] } : entry]));
+  if (Object.entries(renamedAgents).some(([id, [old]]) => config.roles[id]?.label === old || config.agents[id]?.label === old)) {
+    config = { ...config, roles: relabel(config.roles), agents: relabel(config.agents) };
+  }
   // The deployer, added 20 November.
   if (config.agents.deploy === undefined && config.roles.deploy === undefined) {
     const sibling = config.agents.orchestrator;

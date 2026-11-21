@@ -1201,7 +1201,7 @@ export default definePluginApp((app) => {
       };
     },
   });
-  app.slots.navPanel({ id: "factory", title: "Inbox", icon: "Inbox", path: "factory", component: InboxPage, experimental_useBadge: useInboxBadge });
+  app.slots.navPanel({ id: "factory", title: "Inbox", icon: "Mail", path: "factory", component: InboxPage, experimental_useBadge: useInboxBadge });
   app.slots.navPanel({ id: "factory-lanes", title: "Swimlanes", icon: "Workflow", path: "factory-lanes", component: SwimlanesPage });
   app.slots.navPanel({ id: "factory-settings", title: "Factory settings", icon: "SlidersHorizontal", path: "factory-settings", component: SettingsPage });
 });

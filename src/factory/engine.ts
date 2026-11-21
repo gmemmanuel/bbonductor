@@ -1700,6 +1700,12 @@ export class FactoryEngine {
     return this.exclusive(async () => {
       const config = this.store.getConfig(projectId);
       const report: string[] = [];
+      for (const [agentId, agent] of Object.entries(config.agents)) {
+        const threadId = this.store.getAgent(projectId, agentId).threadId;
+        if (threadId === null) continue;
+        this.effects.titleThread(threadId, agent.label);
+        report.push(`${agent.label}: its thread`);
+      }
       for (const item of this.store.listItems(projectId)) {
         if (item.status === "archived" || item.status === "cancelled") continue;
         const owner = this.ownerThread(item);
