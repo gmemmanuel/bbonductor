@@ -536,7 +536,7 @@ export class FactoryEngine {
         // His notes on it go to the ticket's owner, so the entry lives there.
         threadId: this.ownerThread(item) ?? item.threads[stages[item.stageIndex] ?? ""] ?? "",
         kind: "check",
-        from: `Founder testing · ${item.key}`,
+        from: `Founder QA · ${item.key}`,
         question: "Built and reviewed. Try it before it ships.",
         context: [ownerSays === "" ? "" : `**From the issue owner:** ${ownerSays}`, item.founderCheck.text].filter((part) => part !== "").join("\n\n"),
       });

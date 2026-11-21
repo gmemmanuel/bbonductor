@@ -830,7 +830,7 @@ describe("the founder tries a visible change before it ships", () => {
     await toGate();
     expect(t.spawned).toHaveLength(2);
     const { inbox } = await t.state();
-    expect(inbox[0]).toMatchObject({ kind: "check", from: "Founder testing · JUS-1", context: RENDERED });
+    expect(inbox[0]).toMatchObject({ kind: "check", from: "Founder QA · JUS-1", context: RENDERED });
     expect((await t.item("JUS-1")).status).toBe("needs-founder");
 
     await t.rpc("approve", { entryId: inbox[0]!.id });

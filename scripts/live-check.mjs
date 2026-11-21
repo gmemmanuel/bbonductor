@@ -120,19 +120,20 @@ async function runButtonChecks(entry) {
     await page.goto(`http://127.0.0.1:${PORT}/plugins/bbonductor/factory`);
     // The inbox shows small cards; a card opens a pop-up with the whole entry.
     const openTile = async (key) => {
+      await page.locator('[data-testid="inbox-tile"]').first().waitFor({ timeout: 30_000 });
       await page.keyboard.press("Escape");
       const tile = page.locator('[data-testid="inbox-tile"]').filter({ hasText: key });
       await tile.waitFor({ timeout: 30_000 });
       await tile.click();
-      await page.locator('[data-testid="inbox-entry"]').waitFor({ timeout: 15_000 });
+      await page.locator('[data-testid="inbox-panel"] [data-testid="inbox-entry"]').waitFor({ timeout: 15_000 });
     };
     const tiles = page.locator('[data-testid="inbox-tile"]');
     await tiles.first().waitFor({ timeout: 30_000 });
     await page.screenshot({ path: join(work, "page-inbox.png") });
     check(
-      "the inbox is two columns of small cards with no actions on them",
-      (await page.locator('[data-testid="inbox-column-try"] [data-testid="inbox-tile"]').count()) === 1 &&
-        (await page.locator('[data-testid="inbox-column-decide"] [data-testid="inbox-tile"]').count()) === 1 &&
+      "the inbox is two columns of small cards, Decisions and Founder QA, with no actions on them",
+      (await page.locator('[data-testid="inbox-column-qa"] [data-testid="inbox-tile"]').count()) === 1 &&
+        (await page.locator('[data-testid="inbox-column-decisions"] [data-testid="inbox-tile"]').count()) === 1 &&
         (await page.getByRole("button", { name: "Approve and ship" }).count()) === 0,
     );
     await openTile("LIVE-1");

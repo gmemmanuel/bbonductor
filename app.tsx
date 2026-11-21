@@ -17,7 +17,6 @@ import type { FactoryState, rpcContract } from "./server";
 import type { Attachment, Config, InboxEntry, Item, Role } from "./src/factory/model";
 import { RUN_SETTINGS_FILE, RUN_TERMINAL_TITLE, parseRunCommand } from "./src/factory/runScript";
 import { Button } from "@/components/ui/button";
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
 
 const CHANGED = "factory-changed";
@@ -399,62 +398,36 @@ const selectClass =
 
 const KIND_LABEL: Record<InboxEntry["kind"], string> = {
   question: "Decision",
-  interaction: "Waiting in thread",
-  stalled: "Stalled",
+  interaction: "Answer in the thread",
+  stalled: "Stopped",
   failed: "Failed",
   blocked: "Blocked",
-  check: "Try before it ships",
-  test: "Try on main",
+  check: "Not released yet",
+  test: "Released",
   todo: "To do",
 };
 
 /**
- * The inbox is two columns. Left: what only he can decide or do, and anything
- * that broke. Right: work to try before it is released, and work already out.
+ * The founder does two kinds of thing, so the inbox has two columns:
+ * decisions, and founder QA (trying work before or after it is released, and
+ * anything else only he can do by hand). Work that stopped or failed asks him
+ * what to do next, which is a decision.
  */
 const COLUMNS: { id: string; title: string; empty: string; kinds: InboxEntry["kind"][] }[] = [
-  { id: "decide", title: "Decide and do", empty: "Nothing to decide or do.", kinds: ["question", "interaction", "todo", "stalled", "failed", "blocked"] },
-  { id: "try", title: "Try before release", empty: "Nothing waiting to be tried.", kinds: ["check", "test"] },
+  { id: "decisions", title: "Decisions", empty: "Nothing to decide.", kinds: ["question", "interaction", "stalled", "failed", "blocked"] },
+  { id: "qa", title: "Founder QA", empty: "Nothing to try.", kinds: ["check", "test", "todo"] },
 ];
 
 const ACCENT: Record<InboxEntry["kind"], string> = {
   question: "border-l-sky-500",
   interaction: "border-l-sky-500",
-  todo: "border-l-amber-500",
+  todo: "border-l-emerald-500",
   check: "border-l-emerald-500",
   test: "border-l-emerald-500/40",
   stalled: "border-l-red-500",
   failed: "border-l-red-500",
   blocked: "border-l-red-500",
 };
-
-/** The few words on a card that say what kind of step this is. */
-const STEP: Record<InboxEntry["kind"], string> = {
-  question: "Decide",
-  interaction: "Answer in the thread",
-  todo: "To do",
-  check: "Not released yet",
-  test: "Already released",
-  stalled: "Stopped",
-  failed: "Failed",
-  blocked: "Blocked",
-};
-
-/** One plain line from an entry's context: what changed, or how it starts. */
-function gist(entry: InboxEntry): string {
-  const text = entry.context.replace(/\r/g, "");
-  const now = /\*\*Now:\*\*\s*([^\n]+)/.exec(text) ?? /(?:^|\n)Now:\s*([^\n]+)/.exec(text);
-  const line = (now?.[1] ?? text.split("\n").find((part) => part.trim() !== "" && !part.startsWith("**Steps")) ?? "").replace(/\*\*/g, "").trim();
-  return line.replace(/^(Before|Why|Now):\s*/, "");
-}
-
-/** What he is asked to do, without the ticket's name said again. */
-function ask(entry: InboxEntry, ticket: string | null, title: string | null): string {
-  if (entry.kind === "check") return gist(entry) || "Try it on your phone.";
-  let text = entry.question;
-  if (ticket !== null && title !== null) text = text.replace(`${ticket} (${title}) `, "").replace(`${ticket} (${title})`, "");
-  return text.replace(/^Try (?=[A-Z])/, "").replace(/ \(already on main\)$/, "");
-}
 
 function ago(time: number): string {
   const minutes = Math.max(0, Math.round((Date.now() - time) / 60000));
@@ -486,45 +459,54 @@ function TicketLink({ url, ticket }: { url: string | null; ticket: string }) {
   );
 }
 
-/** Two lines at most, then an ellipsis. Written out because the plugin's stylesheet has no line-clamp utility. */
-const CLAMP_TWO = { display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" } as const;
+/** How many steps an entry lists. */
+const stepCount = (entry: InboxEntry) => (entry.context.match(/(^|\n)- /g) ?? []).length;
 
-/** The small card: whose ticket, what kind of step, and the step itself. Everything else is behind a click. */
-function InboxTile({ entry, ticket, title, onOpen }: { entry: InboxEntry; ticket: string | null; title: string | null; onOpen: () => void }) {
-  const main = ask(entry, ticket, title);
-  const hint = entry.kind === "check" ? "" : gist(entry);
-  const steps = (entry.context.match(/\n- /g) ?? []).length;
-  const drafted = !isBlank(readDraft(entry.id));
+/**
+ * The one line a card may carry under the ticket's title: the direction
+ * itself, when it is short enough to read whole. QA that only says "try it"
+ * carries none, and nothing on a card is ever cut off with an ellipsis.
+ */
+function direction(entry: InboxEntry, ticket: string | null, title: string | null): string {
+  if (entry.kind === "check" || entry.kind === "test") return "";
+  let text = entry.question.trim();
+  if (ticket !== null && title !== null) text = text.replace(`${ticket} (${title}) `, "").replace(`${ticket} (${title})`, "");
+  return text.length <= 90 ? text : "";
+}
+
+/** The small card: the ticket, its status, and a direction only when there is a short one. */
+function InboxTile({ entry, ticket, title, active, onOpen }: { entry: InboxEntry; ticket: string | null; title: string | null; active: boolean; onOpen: () => void }) {
+  const steps = stepCount(entry);
+  const line = direction(entry, ticket, title);
   return (
     <li>
       <button
         type="button"
         data-testid="inbox-tile"
-        className={cn("block w-full space-y-1.5 rounded-lg border border-l-[3px] border-border bg-card px-3.5 py-3 text-left transition-colors hover:bg-secondary/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring", ACCENT[entry.kind])}
+        aria-pressed={active}
+        className={cn(
+          "block w-full space-y-1 rounded-lg border border-l-[3px] border-border bg-card px-3.5 py-2.5 text-left transition-colors hover:bg-secondary/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+          ACCENT[entry.kind],
+          active && "bg-secondary/60",
+        )}
         onClick={onOpen}
       >
-        <span className="flex items-center gap-2 text-xs text-muted-foreground">
+        <span className="flex flex-wrap items-center gap-x-2 text-xs text-muted-foreground">
           <span className="font-mono font-medium text-foreground">{ticket ?? entry.from}</span>
-          <span className="min-w-0 flex-1 truncate">{title ?? ""}</span>
-          <span className="shrink-0" title={new Date(entry.createdAt).toLocaleString()}>
-            {ago(entry.createdAt)}
-          </span>
+          <span>{KIND_LABEL[entry.kind]}</span>
+          {steps === 0 ? null : <span>{steps} steps</span>}
+          <span className="flex-1" />
+          <span title={new Date(entry.createdAt).toLocaleString()}>{ago(entry.createdAt)}</span>
         </span>
-        <span className="text-sm font-medium leading-snug" style={CLAMP_TWO}>{main}</span>
-        {hint === "" || hint === main ? null : <span className="block truncate text-xs text-muted-foreground">{hint}</span>}
-        <span className="flex flex-wrap items-center gap-1.5 text-[11px] text-muted-foreground">
-          <span className="font-medium uppercase tracking-wide">{STEP[entry.kind]}</span>
-          {entry.options.length === 0 ? null : <span>· {entry.options.length} options</span>}
-          {steps === 0 ? null : <span>· {steps} steps</span>}
-          {drafted ? <span className="rounded bg-secondary px-1.5 py-0.5 text-secondary-foreground">Draft</span> : null}
-        </span>
+        {title === null ? null : <span className="block text-sm font-medium leading-snug">{title}</span>}
+        {line === "" ? null : <span className={cn("block text-sm leading-snug", title === null ? "font-medium" : "text-muted-foreground")}>{line}</span>}
       </button>
     </li>
   );
 }
 
 /** Everything about one entry: the full text, the reply box and every action. Shown in a pop-up. */
-function InboxCard({ entry, ticket, title, rpc, run }: { entry: InboxEntry; ticket: string | null; title: string | null; rpc: Rpc; run: (work: Promise<unknown>) => void }) {
+function InboxCard({ entry, rpc, run }: { entry: InboxEntry; rpc: Rpc; run: (work: Promise<unknown>) => void }) {
   const [confirmShip, setConfirmShip] = useState(false);
   const navigate = useBbNavigate();
   const sdk = useSdk();
@@ -590,7 +572,7 @@ function InboxCard({ entry, ticket, title, rpc, run }: { entry: InboxEntry; tick
   const urgent = entry.kind === "failed" || entry.kind === "stalled";
   return (
     <div className="space-y-3" data-testid="inbox-entry">
-      {entry.kind === "check" ? null : <p className="text-base font-semibold leading-snug">{ask(entry, ticket, title)}</p>}
+      {entry.kind === "check" ? null : <p className="text-sm font-semibold leading-snug">{entry.question}</p>}
       {entry.context === "" ? null : <Markdown content={entry.context} className="text-sm" />}
       {entry.options.length === 0 ? null : (
         <div className="flex flex-col items-stretch gap-1.5 sm:items-start">
@@ -686,7 +668,8 @@ function InboxCard({ entry, ticket, title, rpc, run }: { entry: InboxEntry; tick
             Retry
           </Button>
         ) : null}
-        <span className="hidden flex-1 sm:block" />
+        {/* The quiet actions get a row of their own, so the main one is never beside Dismiss. */}
+        <span className="basis-full" />
         {entry.threadId !== "" && (entry.kind === "todo" || entry.kind === "test" || entry.kind === "check") ? (
           <Button
             type="button"
@@ -752,7 +735,7 @@ function Ticket({ item, config, rpc, run, canMoveUp = false, canMoveDown = false
   const waiting = item.status === "queued";
   const forFounder = item.status === "needs-founder";
   // A ticket held before ship for the founder's check is in its own stage.
-  const shown = item.status === "done" ? "Merged" : forFounder && item.founderCheck !== null && !item.founderCheck.approved ? "Founder testing" : stageLabel;
+  const shown = item.status === "done" ? "Merged" : forFounder && item.founderCheck !== null && !item.founderCheck.approved ? "Founder QA" : stageLabel;
   const note =
     item.status === "running" || waiting || item.status === "done" || forFounder ? "" : STATUS_LABEL[item.status];
   // The founder talks to a ticket through its issue owner, so that is the
@@ -1119,51 +1102,76 @@ const Loading = ({ error }: { error: string | null }) => <div className="p-5 tex
 function InboxPage() {
   const { rpc, state, error, run } = useFactory();
   const [openId, setOpenId] = useState<string | null>(null);
+  useEffect(() => {
+    const onKey = (event: globalThis.KeyboardEvent) => {
+      if (event.key === "Escape") setOpenId(null);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
   if (state === null) return <Loading error={error} />;
   const itemOf = (entry: InboxEntry) => state.items.find((candidate) => candidate.id === entry.itemId);
-  // An entry that was answered, approved or dismissed is gone, and its pop-up with it.
+  // An entry that was answered, approved or dismissed is gone, and its panel with it.
   const open = state.inbox.find((entry) => entry.id === openId) ?? null;
   const openItem = open === null ? undefined : itemOf(open);
+  const openSteps = open === null ? 0 : stepCount(open);
   return (
-    <Page title="Inbox" width="max-w-5xl" error={error} aside={<span className="text-sm text-muted-foreground">{state.inbox.length === 0 ? "Nothing needs you" : `${state.inbox.length} waiting`}</span>}>
-      <div className="grid gap-6 lg:grid-cols-2">
-        {COLUMNS.map((column) => {
-          const entries = state.inbox.filter((entry) => column.kinds.includes(entry.kind));
-          return (
-            <section key={column.id} className="space-y-2" data-testid={`inbox-column-${column.id}`}>
-              <h2 className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                {column.title}
-                {entries.length === 0 ? null : <span className="rounded-full bg-secondary px-1.5 py-0.5 text-[11px] font-medium tabular-nums text-secondary-foreground">{entries.length}</span>}
-              </h2>
-              {entries.length === 0 ? (
-                <p className="rounded-lg border border-dashed border-border px-3.5 py-3 text-sm text-muted-foreground">{column.empty}</p>
-              ) : (
-                <ul className="space-y-2">
-                  {entries.map((entry) => (
-                    <InboxTile key={entry.id} entry={entry} ticket={itemOf(entry)?.key ?? null} title={itemOf(entry)?.title ?? null} onOpen={() => setOpenId(entry.id)} />
-                  ))}
-                </ul>
-              )}
-            </section>
-          );
-        })}
+    <div className="flex h-full min-h-0 flex-1">
+      <div className={cn("min-w-0 flex-1", open !== null && "hidden lg:block")}>
+        <Page title="Inbox" width={open === null ? "max-w-5xl" : "max-w-xl"} error={error} aside={<span className="text-sm text-muted-foreground">{state.inbox.length === 0 ? "Nothing needs you" : `${state.inbox.length} waiting`}</span>}>
+          <div className={cn("grid gap-6", open === null && "lg:grid-cols-2")}>
+            {COLUMNS.map((column) => {
+              const entries = state.inbox.filter((entry) => column.kinds.includes(entry.kind));
+              return (
+                <section key={column.id} className="space-y-2" data-testid={`inbox-column-${column.id}`}>
+                  <h2 className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                    {column.title}
+                    {entries.length === 0 ? null : <span className="rounded-full bg-secondary px-1.5 py-0.5 text-[11px] font-medium tabular-nums text-secondary-foreground">{entries.length}</span>}
+                  </h2>
+                  {entries.length === 0 ? (
+                    <p className="rounded-lg border border-dashed border-border px-3.5 py-2.5 text-sm text-muted-foreground">{column.empty}</p>
+                  ) : (
+                    <ul className="space-y-2">
+                      {entries.map((entry) => (
+                        <InboxTile
+                          key={entry.id}
+                          entry={entry}
+                          ticket={itemOf(entry)?.key ?? null}
+                          title={itemOf(entry)?.title ?? null}
+                          active={entry.id === openId}
+                          onOpen={() => setOpenId(entry.id === openId ? null : entry.id)}
+                        />
+                      ))}
+                    </ul>
+                  )}
+                </section>
+              );
+            })}
+          </div>
+        </Page>
       </div>
-      <Dialog open={open !== null} onOpenChange={(next) => (next ? undefined : setOpenId(null))}>
-        {open === null ? null : (
-          <DialogContent className="max-h-[88vh] w-full max-w-2xl overflow-y-auto" data-testid="inbox-dialog">
-            <DialogHeader>
-              <DialogTitle className="text-base">
-                {openItem === undefined ? open.from : `${openItem.key} · ${openItem.title}`}
-              </DialogTitle>
-              <DialogDescription>
-                {STEP[open.kind]} · {ago(open.createdAt)}
-              </DialogDescription>
-            </DialogHeader>
-            <InboxCard key={open.id} entry={open} ticket={openItem?.key ?? null} title={openItem?.title ?? null} rpc={rpc} run={run} />
-          </DialogContent>
-        )}
-      </Dialog>
-    </Page>
+      {open === null ? null : (
+        <aside className="flex h-full min-h-0 w-full flex-col border-l border-border bg-background lg:w-[34rem] lg:shrink-0" data-testid="inbox-panel">
+          <div className="flex items-start gap-3 border-b border-border px-5 py-4">
+            <div className="min-w-0 flex-1 space-y-1">
+              <p className="flex flex-wrap items-center gap-x-2 text-xs text-muted-foreground">
+                <span className="font-mono font-medium text-foreground">{openItem?.key ?? open.from}</span>
+                <span>{KIND_LABEL[open.kind]}</span>
+                {openSteps === 0 ? null : <span>{openSteps} steps</span>}
+                <span>{ago(open.createdAt)}</span>
+              </p>
+              {openItem === undefined ? null : <h2 className="text-base font-semibold leading-snug">{openItem.title}</h2>}
+            </div>
+            <button type="button" aria-label="Close" className="rounded px-1.5 text-lg leading-none text-muted-foreground hover:bg-secondary hover:text-foreground" onClick={() => setOpenId(null)}>
+              ×
+            </button>
+          </div>
+          <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
+            <InboxCard key={open.id} entry={open} rpc={rpc} run={run} />
+          </div>
+        </aside>
+      )}
+    </div>
   );
 }
 
