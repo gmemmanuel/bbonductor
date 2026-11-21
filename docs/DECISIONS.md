@@ -11,6 +11,10 @@ What Gideon has decided about the factory, newest first. Check here before re-op
 
 ---
 
+## 21 November 2026 (inbox panel behaviour)
+
+**Dealing with an inbox entry opens the next one; the panel does not close.** The panel's open state belongs to the inbox page: it is as he left it when he returns, and shows nowhere else. (Founder)
+
 ## 21 November 2026 (inbox: Decisions and Founder QA)
 
 **The inbox has two columns, Decisions and Founder QA, because those are the only two things he does.** Founder QA holds work to try before or after release and anything else he does by hand; "to do" is not a separate kind on the page. Work that stopped or failed sits under Decisions. (Founder)
