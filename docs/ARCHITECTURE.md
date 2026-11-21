@@ -72,9 +72,23 @@ Every state except `queued`, `done` and `cancelled` holds its lane and counts to
 - **Tools are scoped.** Stage threads get report, ask and message. Standing agents also get enqueue and status. Other threads get nothing and use the CLI.
 - **The inbox spans projects.** It is the founder's single queue.
 
+## Issue owners
+
+Every ticket has one thread the founder talks to: its **issue owner**. A stage marked `owner` makes the thread that runs it the owner from then on; by default that is plan review. A ticket whose plan was reviewed elsewhere gets an owner thread in its workspace the first time one is needed.
+
+- **Only the owner reaches the inbox for its ticket.** `factory_ask_founder`, `factory_ask_planner` and a blocked report from any other thread on the ticket go to the owner, and the ticket shows as with its owner until the owner replies to the stage, sends the builder work, or asks the founder.
+- **The founder's notes on a check go to the owner.** The owner plans the change and messages the builder's stage, which is what moves the ticket back to that stage. The same message reopens a ticket that already shipped. If nothing should change, the owner reports "complete" and the check returns to the founder with the owner's reason.
+- **The factory still moves tickets.** The owner never starts a stage. A separate code reviewer always runs; findings go to the builder directly.
+- **The ticket note.** The owner keeps a short note through `factory_ticket_note`. The engine stores it and appends it to everything it hands the owner, so it survives compaction.
+- **A reply in the thread answers the inbox.** When the founder starts a turn in a thread that has an open ask, the ask closes. bb raises no event for that, so on `thread.active` the server reads the thread's latest `client/turn/requested` event and checks its initiator.
+
+## Small bugs
+
+A ticket on the `small-bug` pipeline gets no workspace. It is attached to the next planned ticket whose build has not started, in the lane named or in any lane, and every stage of that ticket is told to cover it. With no planned ticket coming up it runs alone on the `fix` stage, whose builder owns it.
+
 ## Standing agents
 
-Four by default: the **Chief of staff** receives every blocked report and founder question from ticket threads and either settles it or asks the founder in plain words; the **Planner / strategist** (id `orchestrator`) plans and queues, **Watch** runs recurring checks and hands what is new to the orchestrator, and the **Harness improver** runs retros and machine cleanup. Scheduled work reaches them through bb Automations running `bb factory prompt <agent> "…"`, which starts the agent if it has no thread. A message to an unstarted standing agent starts it too.
+Four by default: the **Planner / strategist** (id `orchestrator`) plans and queues, **Watch** runs recurring checks and hands what is new to the orchestrator, and the **Harness improver** runs retros and machine cleanup. Scheduled work reaches them through bb Automations running `bb factory prompt <agent> "…"`, which starts the agent if it has no thread. A message to an unstarted standing agent starts it too.
 
 A standing agent is a pinned thread in the project's main checkout, started from the page. Its first prompt names its charter skill and its memory file. "Fresh thread" asks the current thread to write everything it knows to the memory file; when that thread goes idle, a new thread starts from the file and the old one is unpinned.
 

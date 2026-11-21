@@ -16,7 +16,9 @@ In rough order.
 1. **Founder picks models per role, starts the orchestrator, and runs one small Justus ticket by hand.** Then resume the three paused automations.
 3. **Feedback that triggers a check when it arrives.** bb's public address cannot be called by the cloud function (see `LEARNINGS.md`), so plan a poller in Justus: a script automation every few minutes that asks preview for untriaged feedback newer than its marker, stays silent when there is none, and otherwise runs `bb factory prompt watch "…"` with the row ids. The `/prompt` hook is there if a safe public route appears.
 4. **Revisit ticket approval around 30 November 2026.** The founder approves every new ticket for the first week or two; ask then whether the orchestrator may create them on its own.
-5. **Teach the Justus instructions about the factory.** `AGENTS.md` there says the founder launches reviews and ship; under the factory the factory does.
+5. **Teach the Justus instructions about the factory.** `AGENTS.md` there says the founder launches reviews and ship; under the factory the factory does. Its `review-plan` skill already says the reviewer stays the ticket's planner; add that the founder's feedback comes to it too, and that small bugs ride with a planned ticket (the `SMALL_BUG` fast path and its resolver assume a branch per bug).
+6. **Builder and shipper as sub-agents of the issue owner**, possibly on other providers, if threads stop being the useful shape. Held by the founder.
+6. **Show the ticket note on the page**, and let a small bug be moved to another ticket.
 7. **Install `tools/dashboard` dependencies in Justus worktrees** if a lane ever runs outside the main checkout.
 8. **Rotate standing agents by context use.** Watch runs daily and will fill up first.
 9. **Editing pipelines and stage prompts in the page.**
@@ -24,6 +26,15 @@ In rough order.
 11. **Install bb's Conductor layout when it is released.**
 
 ## Log
+
+### 20 November 2026 (eleventh session): issue owners, riding small bugs
+
+- **Issue owner per ticket; chief of staff retired.** The plan-review thread owns its ticket: other stages' questions, blockers and the founder's notes all go to it, and only it reaches the inbox. A ticket reviewed elsewhere gets an owner thread on first need. New charter `factory-issue-owner`, new tool `factory_ticket_note`, new status "with issue owner".
+- **The owner sending the builder work moves the ticket back to that stage**, including one that already shipped.
+- **A reply typed in a thread clears its inbox entry.**
+- **Small bugs ride with the next planned ticket** in a lane and are told to every stage; alone only when nothing planned is coming up.
+- Saved configurations drop the chief of staff and mark plan review as the owner stage. The founder's 14 live tickets needed no change.
+- **Checked:** 69 behaviour tests, 49 live checks. The live check caught that bb raises no event for a message that starts a turn. **Not checked:** a real model following the owner charter, and riders on the page in a browser.
 
 ### 20 November 2026 (tenth session): inbox reply box
 
