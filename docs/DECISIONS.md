@@ -11,6 +11,18 @@ What Gideon has decided about the factory, newest first. Check here before re-op
 
 ---
 
+## 21 November 2026 (inbox: Decisions and Founder QA)
+
+**The inbox has two columns, Decisions and Founder QA, because those are the only two things he does.** Founder QA holds work to try before or after release and anything else he does by hand; "to do" is not a separate kind on the page. Work that stopped or failed sits under Decisions. (Founder)
+
+**A card is the ticket number, status, step count and time on one line, then the ticket's title.** A direction shows under it only when it is short enough to read whole, and never for QA that only says "try it". Nothing on a card is cut off with an ellipsis. (Founder)
+
+**An entry opens in a panel beside the list, not a pop-up.** (Founder: "The modal's kind of cluttered")
+
+**"Founder testing" is called Founder QA everywhere.** (Founder)
+
+This replaces the card and pop-up design below.
+
 ## 21 November 2026 (inbox cards)
 
 **The inbox is two columns of small cards: "Decide and do" and "Try before release".** A card shows the ticket, his step and one line; clicking it opens a pop-up with the full text, the reply box and every action. No ticket link on inbox cards, and nothing said twice. (Founder: "still just kind of a big old wall of text")
