@@ -21,7 +21,7 @@ Gideon builds the Justus app (and smaller projects) with a pipeline of independe
 | `src/factory/defaults.ts` | Default roles, stages, pipelines, standing agents |
 | `src/factory/cli.ts` | `bb factory …` |
 | `app.tsx` | The Factory page: inbox, swimlanes, standing agents, roles |
-| `skills/` | Agent-facing instructions shipped with the plugin (worker protocol; planner, chief-of-staff, watch and harness-improver charters) |
+| `skills/` | Agent-facing instructions shipped with the plugin (worker protocol; planner, chief-of-staff, deployer, watch and harness-improver charters) |
 | `tests/factory.test.ts` | Behaviour tests on the SDK's fake plugin host |
 | `scripts/live-check.mjs` | End-to-end check against a real, throwaway bb server |
 | `components/`, `lib/`, `hooks/` | UI source vendored by `bb plugin new`. Ours to edit, but prefer leaving it alone |

@@ -33,7 +33,7 @@ function setup() {
   let failSpawn = false;
   const host = createFakePluginHost({
     pluginId: "bbonductor",
-    agentSkillIds: ["factory", "factory-orchestrator", "factory-chief-of-staff", "factory-harness-improver", "factory-watch"],
+    agentSkillIds: ["factory", "factory-orchestrator", "factory-chief-of-staff", "factory-deploy", "factory-harness-improver", "factory-watch"],
     sdk: {
       projects: { list: async () => [{ id: PROJECT, name: "Justus" }] },
       system: { config: async () => ({ primaryHostId: "host_local" }) },
@@ -601,6 +601,15 @@ describe("standing agents and messaging", () => {
     expect(t.spawned.map((thread) => thread.title)).toEqual(["Watch", "Planner / strategist"]);
     expect(t.sent.at(-1)).toMatchObject({ threadId: "th_2", senderThreadId: "th_1" });
     expect(t.sent.at(-1)!.text).toContain("Message from Watch");
+  });
+
+  it("offers a deployer as a standing agent with its own model and charter", async () => {
+    const { config } = await t.state();
+    expect(config.agents.deploy).toMatchObject({ label: "Deployer", role: "deploy", skill: "factory-deploy" });
+    await t.rpc("saveConfig", { projectId: PROJECT, config: { ...config, roles: { ...config.roles, deploy: { ...config.roles.deploy, providerId: "codex", model: "gpt-luna" } } } });
+    await t.rpc("startAgent", { projectId: PROJECT, agentId: "deploy" });
+    expect(t.spawned.at(-1)).toMatchObject({ title: "Deployer", providerId: "codex", model: "gpt-luna", pinned: true });
+    expect(t.spawned.at(-1)!.prompt).toContain("factory-deploy");
   });
 
   it("delivers messages between a worker and the orchestrator", async () => {
